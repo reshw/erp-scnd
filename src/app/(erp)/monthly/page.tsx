@@ -144,14 +144,33 @@ export default async function MonthlyPage({
   }
 
   const plGet = (mk: string): PLMonth => pl[mk] ?? { revenue: 0, opex: 0, interest: 0 }
-  const opProfit = (mk: string) => { const p = plGet(mk); return p.revenue - p.opex }
+  const opProfit  = (mk: string) => { const p = plGet(mk); return p.revenue - p.opex }
   const netProfit = (mk: string) => { const p = plGet(mk); return p.revenue - p.opex - p.interest }
 
-  const annualRevenue  = months.reduce((s, mk) => s + plGet(mk).revenue, 0)
-  const annualOpex     = months.reduce((s, mk) => s + plGet(mk).opex, 0)
-  const annualInterest = months.reduce((s, mk) => s + plGet(mk).interest, 0)
-  const annualOpProfit = annualRevenue - annualOpex
+  const annualRevenue   = months.reduce((s, mk) => s + plGet(mk).revenue, 0)
+  const annualOpex      = months.reduce((s, mk) => s + plGet(mk).opex, 0)
+  const annualInterest  = months.reduce((s, mk) => s + plGet(mk).interest, 0)
+  const annualOpProfit  = annualRevenue - annualOpex
   const annualNetProfit = annualRevenue - annualOpex - annualInterest
+
+  // ── 비영업 현금 조정 ──────────────────────────────────────────────────────
+  // cashImpact = credit - debit (양수 = 현금 유입, 음수 = 현금 유출)
+  // 복식부기 항등식: Σ all(credit-debit) = 0
+  // → 현금 순변동 = Σ 비현금 활동 (credit-debit) = 순이익 + 재무 + 세무 + 개인 + 투자
+  const cashImpact = (mk: string, type: string): number => {
+    const d = agg[mk]?.[type]; return d ? d.credit - d.debit : 0
+  }
+  const annualCashImpact = (type: string) => months.reduce((s, mk) => s + cashImpact(mk, type), 0)
+
+  // 최종 현금 순변동 = 순이익 + 재무 + 세무 + 개인 + 투자
+  const finalCashFlow  = (mk: string) =>
+    netProfit(mk) + cashImpact(mk, '재무') + cashImpact(mk, '세무') + cashImpact(mk, '개인') + cashImpact(mk, '투자')
+  const annualFinalCF  = annualNetProfit + annualCashImpact('재무') + annualCashImpact('세무') + annualCashImpact('개인') + annualCashImpact('투자')
+
+  // 현금 잔고 변동과 교차 검증용 (현금 debit - credit = -(cashImpact 현금))
+  const cashLedgerChange = (mk: string) => {
+    const d = agg[mk]?.['현금']; return d ? d.debit - d.credit : 0
+  }
 
   // ── 현금 잔고 테이블 컴포넌트 ─────────────────────────────────────────────
   function CashTable({ ledger, label }: { ledger: BalanceLedger; label: string }) {
@@ -364,11 +383,67 @@ export default async function MonthlyPage({
                 </td>
               </tr>
 
+              {/* ── 비영업 현금 조정 구분선 ── */}
+              <tr className="border-t-2 border-dashed border-gray-300">
+                <td colSpan={14} className="px-3 py-1 text-xs text-gray-400 bg-gray-50">
+                  비영업 현금 조정 (양수 = 현금 유입 ↑ / 음수 = 현금 유출 ↓)
+                </td>
+              </tr>
+
+              {/* 재무활동: 차입 – 상환 */}
+              {(['재무', '세무', '개인', '투자'] as const).map(type => {
+                const labels: Record<string, string> = {
+                  재무: '재무 (차입 – 상환)',
+                  세무: '세금 정산',
+                  개인: '개인 (출자 – 인출)',
+                  투자: '투자 (회수 – 집행)',
+                }
+                const annualV = annualCashImpact(type)
+                const hasData = months.some(mk => cashImpact(mk, type) !== 0)
+                return (
+                  <tr key={type} className={`border-b hover:bg-gray-50 ${!hasData ? 'opacity-30' : ''}`}>
+                    <td className="px-3 py-2 text-sm text-gray-600">{labels[type]}</td>
+                    {months.map(mk => {
+                      const v = cashImpact(mk, type)
+                      return (
+                        <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-50/50' : ''} ${v < 0 ? 'text-red-500' : v > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
+                          {v !== 0 ? fmtPL(v) : '-'}
+                        </td>
+                      )
+                    })}
+                    <td className={`text-right px-3 py-2 tabular-nums bg-gray-50 ${annualV < 0 ? 'text-red-500' : annualV > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                      {annualV !== 0 ? fmtPL(annualV) : '-'}
+                    </td>
+                  </tr>
+                )
+              })}
+
+              {/* 최종 현금 순변동 */}
+              <tr className="bg-slate-800 text-white font-bold border-t-2">
+                <td className="px-3 py-2.5 text-sm">현금 순변동</td>
+                {months.map(mk => {
+                  const v = finalCashFlow(mk)
+                  const ledger = cashLedgerChange(mk)
+                  const mismatch = Math.abs(v - ledger) > 1  // 1원 오차 허용
+                  const hasActivity = plGet(mk).revenue > 0 || plGet(mk).opex > 0
+                    || (['재무','세무','개인','투자'] as const).some(t => cashImpact(mk, t) !== 0)
+                  return (
+                    <td key={mk} title={mismatch ? `⚠ 잔고 불일치 (잔고변동: ${fmtPL(ledger)})` : undefined}
+                      className={`text-right px-3 py-2.5 tabular-nums ${mk === currentMonth ? 'bg-slate-600' : ''} ${!hasActivity ? 'text-slate-500' : v < 0 ? 'text-red-300' : 'text-green-300'} ${mismatch ? 'underline decoration-dotted decoration-yellow-400' : ''}`}>
+                      {hasActivity ? fmtPL(v) : '-'}
+                    </td>
+                  )
+                })}
+                <td className={`text-right px-3 py-2.5 tabular-nums bg-slate-700 ${annualFinalCF < 0 ? 'text-red-300' : 'text-green-300'}`}>
+                  {fmtPL(annualFinalCF)}
+                </td>
+              </tr>
+
             </tbody>
           </table>
         </div>
         <p className="text-xs text-gray-400">
-          현금기준 손익: 영업 activity 중 수익계정 credit = 매출, 비용계정 debit = 영업비용, 이자비용(금융비용 subtype) 별도 차감
+          현금기준 손익 · 현금 순변동 = 순이익 + 재무 + 세무 + 개인 + 투자 (복식부기 항등식) · 셀 호버 시 잔고 불일치 여부 표시
         </p>
       </div>
 
