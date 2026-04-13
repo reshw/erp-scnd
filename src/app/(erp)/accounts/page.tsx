@@ -1,13 +1,16 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import AccountsClient from './AccountsClient'
 
-type Account = {
+export type Account = {
   id: string
   name: string
   activity_type: string
   normal_side: string
+  increase_type: string
   increase_label: string
+  decrease_type: string
   decrease_label: string
+  note: string | null
   is_active: boolean
 }
 
@@ -17,7 +20,7 @@ export default async function AccountsPage() {
   const supabase = createAdminClient()
   const { data } = await (supabase as any)
     .from('accounts')
-    .select('id, name, activity_type, normal_side, increase_label, decrease_label, is_active')
+    .select('id, name, activity_type, normal_side, increase_type, increase_label, decrease_type, decrease_label, note, is_active')
     .order('activity_type')
     .order('name') as { data: Account[] | null }
 
