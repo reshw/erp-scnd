@@ -151,7 +151,7 @@ export default async function MonthlyPage({
   const annualOpex     = months.reduce((s, mk) => s + plGet(mk).opex, 0)
   const annualInterest = months.reduce((s, mk) => s + plGet(mk).interest, 0)
   const annualOpProfit = annualRevenue - annualOpex
-  const annualNet      = annualRevenue - annualOpex - annualInterest
+  const annualNetProfit = annualRevenue - annualOpex - annualInterest
 
   // ── 현금 잔고 테이블 컴포넌트 ─────────────────────────────────────────────
   function CashTable({ ledger, label }: { ledger: BalanceLedger; label: string }) {
@@ -359,8 +359,8 @@ export default async function MonthlyPage({
                     </td>
                   )
                 })}
-                <td className={`text-right px-3 py-2 tabular-nums bg-gray-200 ${annualNet < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                  {fmtPL(annualNet)}
+                <td className={`text-right px-3 py-2 tabular-nums bg-gray-200 ${annualNetProfit < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                  {fmtPL(annualNetProfit)}
                 </td>
               </tr>
 
