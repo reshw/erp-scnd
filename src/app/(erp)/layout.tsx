@@ -8,7 +8,9 @@ export default function ErpLayout({ children }: { children: React.ReactNode }) {
           <a href="/journals" className="hover:text-black">현금출납</a>
           <a href="/accounts" className="hover:text-black">계정과목</a>
           <a href="/counterparties" className="hover:text-black">거래처</a>
+          <a href="/projects" className="hover:text-black">프로젝트</a>
           <a href="/loans" className="hover:text-black">대출</a>
+          <a href="/monthly" className="hover:text-black">월말마감</a>
         </nav>
       </header>
       <main className="p-6">{children}</main>
