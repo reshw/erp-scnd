@@ -12,7 +12,8 @@
       "Bash(cp -r D:/dev/erp-temp/. D:/dev/erp/)",
       "Bash(rm -rf D:/dev/erp-temp)",
       "Bash(npm install:*)",
-      "Bash(npx shadcn@latest init --defaults)"
+      "Bash(npx shadcn@latest init --defaults)",
+      "Bash(ls:*)"
     ]
   }
 }
