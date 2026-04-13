@@ -57,11 +57,23 @@ def upsert(table, data, on_conflict):
 
 # ── 마스터 데이터 로드 ────────────────────────────────
 print("📥 마스터 데이터 로드 중...")
-accounts_list   = get("accounts", "select=id,name")
+accounts_list   = get("accounts", "select=id,name,normal_side,increase_label,decrease_label")
 projects_list   = get("projects", "select=id,code")
 
-account_map = {a["name"]: a["id"] for a in accounts_list}
-project_map = {p["code"]: p["id"] for p in projects_list}
+account_map     = {a["name"]: a["id"] for a in accounts_list}
+account_meta    = {a["name"]: a for a in accounts_list}   # 분류 자동계산용
+project_map     = {p["code"]: p["id"] for p in projects_list}
+
+def calc_classification(account_name: str, debit: int, credit: int) -> str | None:
+    """분류표 VLOOKUP 로직 재현: 정상방향과 실제 방향 비교"""
+    meta = account_meta.get(account_name)
+    if not meta:
+        return None
+    normal_is_debit = meta["normal_side"] == "debit"
+    actual_is_debit = debit > 0
+    if normal_is_debit == actual_is_debit:
+        return meta["increase_label"]   # 증가 방향
+    return meta["decrease_label"]       # 감소 방향
 
 print(f"   계정과목 {len(account_map)}개, 프로젝트 {len(project_map)}개")
 
@@ -76,7 +88,7 @@ for row in ws.iter_rows(min_row=2, values_only=True):
         row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9]
 
     # 헤더나 빈 행 스킵
-    if journal_no is None or classification is None:
+    if journal_no is None:
         continue
     if not isinstance(journal_no, (int, float)):
         continue
@@ -160,20 +172,27 @@ for (journal_no, date_str), lines in sorted(journal_groups.items()):
             missing_accounts.add(l["account_name"])
             continue
 
+        # classification None이면 분류표 로직으로 자동 계산
+        cls = l["classification"]
+        if not cls:
+            cls = calc_classification(l["account_name"], l["debit"], l["credit"])
+        if not cls:
+            continue   # 계산 불가 시 스킵
+
         # classification 파싱: "현금 - 입금" → activity_type=현금, activity_subtype=입금
-        parts = l["classification"].split(" - ", 1)
+        parts = cls.split(" - ", 1)
         activity_type    = parts[0].strip() if len(parts) > 0 else ""
         activity_subtype = parts[1].strip() if len(parts) > 1 else ""
 
         line_data.append({
             "journal_id":       journal_id,
             "date":             l["date"],
-            "classification":   l["classification"],
+            "classification":   cls,
             "activity_type":    activity_type,
             "activity_subtype": activity_subtype,
             "account_id":       account_id,
-            "debit":            l["debit"],
-            "credit":           l["credit"],
+            "debit":            int(round(l["debit"])),
+            "credit":           int(round(l["credit"])),
             "counterparty_id":  cp_map.get(l["counterparty_name"]) if l["counterparty_name"] else None,
             "counterparty_name": l["counterparty_name"],
             "note":             l["note"],
@@ -185,6 +204,9 @@ for (journal_no, date_str), lines in sorted(journal_groups.items()):
             ok_count += 1
         except Exception as e:
             print(f"   ❌ 전표 {journal_no} 명세 오류: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"      응답: {e.response.text[:300]}")
+            print(f"      데이터: {line_data}")
             err_count += 1
 
 # ── 결과 ─────────────────────────────────────────────

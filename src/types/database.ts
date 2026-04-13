@@ -134,6 +134,7 @@ export interface Database {
           total_credit: number
           balance: number
         }
+        Relationships: []
       }
       project_balances: {
         Row: {
@@ -143,6 +144,7 @@ export interface Database {
           total_debit: number
           total_credit: number
         }
+        Relationships: []
       }
       monthly_cashflow: {
         Row: {
@@ -153,6 +155,7 @@ export interface Database {
           total_debit: number
           total_credit: number
         }
+        Relationships: []
       }
     }
     Functions: Record<string, never>
