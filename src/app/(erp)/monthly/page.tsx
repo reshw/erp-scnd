@@ -14,6 +14,23 @@ function fmtPL(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
 }
 
+/** XIRR: 이분법 100회 수렴 */
+function xirr(cfs: { date: Date; amount: number }[]): number | null {
+  if (cfs.length < 2) return null
+  const t0 = cfs[0].date.getTime()
+  const npv = (r: number) =>
+    cfs.reduce((s, cf) => s + cf.amount / Math.pow(1 + r, (cf.date.getTime() - t0) / (365 * 86400000)), 0)
+  const loNpv = npv(-0.9999)
+  const hiNpv = npv(10)
+  if (Math.sign(loNpv) === Math.sign(hiNpv)) return null
+  let lo = -0.9999, hi = 10
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2
+    npv(mid) * npv(lo) <= 0 ? (hi = mid) : (lo = mid)
+  }
+  return (lo + hi) / 2
+}
+
 const ACTIVITY_TYPES = ['현금', '영업', '재무', '투자', '개인', '세무']
 
 const ACTIVITY_COLOR: Record<string, string> = {
@@ -107,6 +124,59 @@ export default async function MonthlyPage({
 
   const { data: rawMatrix } = await matrixQuery as { data: CashflowRow[] | null }
   const matrixRows = rawMatrix ?? []
+
+  // ── #12 XIRR 데이터 ───────────────────────────────────────────────────────
+  // 연초 출자잔액: 전년도까지 개인 activity 누계 (monthly_cashflow 사용)
+  const { data: priorPersonalRaw } = await (supabase as any)
+    .from('monthly_cashflow')
+    .select('total_debit, total_credit')
+    .eq('activity_type', '개인')
+    .lt('month', `${year}-01-01`) as { data: Array<{ total_debit: number; total_credit: number }> | null }
+
+  const yearStartEquity = (priorPersonalRaw ?? []).reduce(
+    (s, r) => s + Number(r.total_credit) - Number(r.total_debit), 0
+  )
+
+  // 금년 개인 거래 날짜별 (취소 전표 제외)
+  const { data: personalLinesRaw } = await (supabase as any)
+    .from('journal_lines')
+    .select('date, debit, credit, journals!inner(is_cancelled)')
+    .eq('activity_type', '개인')
+    .gte('date', `${year}-01-01`)
+    .lte('date', `${year}-12-31`)
+    .eq('journals.is_cancelled', false)
+    .order('date') as { data: Array<{ date: string; debit: number; credit: number }> | null }
+
+  const personalLines = personalLinesRaw ?? []
+
+  // 금년 누적 순이익: 영업 (credit - debit)
+  const yearNetProfit = matrixRows
+    .filter(r => r.activity_type === '영업')
+    .reduce((s, r) => s + Number(r.total_credit) - Number(r.total_debit), 0)
+
+  // 금년 개인 순투입 = 투입(credit) - 인출(debit)
+  const yearContrib = personalLines.reduce((s, r) => s + Number(r.credit) - Number(r.debit), 0)
+  const yearEndEquity = yearStartEquity + yearContrib
+  const terminalValue = yearEndEquity + yearNetProfit
+
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const currentYear = new Date().getFullYear().toString()
+  const terminalDateStr = year < currentYear ? `${year}-12-31` : todayStr
+  const terminalDate = new Date(terminalDateStr)
+
+  // XIRR 현금흐름 구성
+  const xirrCFs: { date: Date; amount: number }[] = []
+  if (yearStartEquity > 0) {
+    xirrCFs.push({ date: new Date(`${year}-01-01`), amount: -yearStartEquity })
+  }
+  for (const l of personalLines) {
+    const amount = Number(l.debit) - Number(l.credit)  // 인출(+), 투입(-)
+    if (amount !== 0) xirrCFs.push({ date: new Date(l.date), amount })
+  }
+  if (terminalValue > 0) {
+    xirrCFs.push({ date: terminalDate, amount: terminalValue })
+  }
+  const xirrRate = xirr(xirrCFs)
 
   const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`)
 
@@ -505,6 +575,57 @@ export default async function MonthlyPage({
             )}
           </>
         )}
+      </div>
+
+      <hr className="border-gray-200" />
+
+      {/* ═══════════════════════════════════════════════════════
+          섹션 2-B: 출자금 수익률 (XIRR)
+      ══════════════════════════════════════════════════════════ */}
+      <div className="space-y-3">
+        <h3 className="font-semibold text-base">출자금 수익률 ({year}년 · 연초 리셋 가정)</h3>
+        <div className="border rounded-lg overflow-hidden">
+          <div className="p-4 bg-gray-50 border-b grid grid-cols-2 gap-4 sm:grid-cols-4 text-sm">
+            <div>
+              <div className="text-xs text-gray-500 mb-0.5">연초 출자잔액</div>
+              <div className="font-semibold tabular-nums">{fmtBal(yearStartEquity)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-0.5">금년 순투입 (투입–인출)</div>
+              <div className={`font-semibold tabular-nums ${yearContrib < 0 ? 'text-red-600' : ''}`}>
+                {fmtBal(yearContrib)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-0.5">금년 누적 순이익</div>
+              <div className={`font-semibold tabular-nums ${yearNetProfit < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                {fmtBal(yearNetProfit)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-0.5">Terminal Value ({terminalDateStr})</div>
+              <div className="font-semibold tabular-nums">{fmtBal(terminalValue)}</div>
+            </div>
+          </div>
+          <div className="p-4 flex items-center gap-3">
+            {xirrRate !== null ? (
+              <>
+                <div className={`text-3xl font-bold ${xirrRate < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                  {(xirrRate * 100).toFixed(2)}%
+                </div>
+                <div className="text-sm text-gray-500">연간 수익률 (XIRR · 현금기준)</div>
+              </>
+            ) : (
+              <div className="text-sm text-gray-400">
+                {yearStartEquity <= 0 && yearContrib <= 0 ? '출자 내역 없음' : '수익률 계산 불가 (CF 부호 확인 필요)'}
+              </div>
+            )}
+          </div>
+          <p className="px-4 pb-3 text-xs text-gray-400">
+            연초 리셋: 전년말 출자잔액을 1/1 재투입으로 가정 · 금년 출자/인출 날짜별 반영 · Terminal = 연말 출자잔액 + 금년 순이익
+            {year === currentYear ? ` · 기준일: ${terminalDateStr}` : ''}
+          </p>
+        </div>
       </div>
 
       <hr className="border-gray-200" />
