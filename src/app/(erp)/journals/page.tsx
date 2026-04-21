@@ -28,6 +28,7 @@ export default async function JournalsPage({
     to?: string
     year?: string
     month?: string
+    type?: string
     subtype?: string
     searched?: string
     all?: string
@@ -37,7 +38,7 @@ export default async function JournalsPage({
   const supabase = createAdminClient()
 
   const hasFilter = !!(params.no || params.project || params.from || params.to ||
-                       params.year || params.month || params.subtype)
+                       params.year || params.month || params.type || params.subtype)
   const searched  = params.searched === '1'
   const showAll   = params.all === '1'
 
@@ -55,6 +56,7 @@ export default async function JournalsPage({
   const activeFilters: string[] = []
   if (params.year && params.month) activeFilters.push(`${params.year}년 ${params.month}월`)
   else if (params.year) activeFilters.push(`${params.year}년`)
+  if (params.type) activeFilters.push(params.type)
   if (params.subtype) activeFilters.push(params.subtype)
 
   const clearFilterUrl = new URLSearchParams()
@@ -88,17 +90,16 @@ export default async function JournalsPage({
       toDate   = `${params.year}-12-31`
     }
 
-    // subtype 필터: 해당 subtype을 가진 journal_id 목록
-    let subtypeJournalIds: string[] | null = null
-    if (params.subtype) {
-      let lq = (supabase as any)
-        .from('journal_lines')
-        .select('journal_id')
-        .eq('activity_subtype', params.subtype)
+    // type / subtype 필터: journal_lines에서 해당 조건의 journal_id 목록 추출
+    let lineFilterIds: string[] | null = null
+    if (params.type || params.subtype) {
+      let lq = (supabase as any).from('journal_lines').select('journal_id')
+      if (params.type)    lq = lq.eq('activity_type', params.type)
+      if (params.subtype) lq = lq.eq('activity_subtype', params.subtype)
       if (fromDate) lq = lq.gte('date', fromDate)
       if (toDate)   lq = lq.lte('date', toDate)
       const { data: lineRows } = await lq as { data: Array<{ journal_id: string }> | null }
-      subtypeJournalIds = [...new Set((lineRows ?? []).map(l => l.journal_id))]
+      lineFilterIds = [...new Set((lineRows ?? []).map(l => l.journal_id))]
     }
 
     let query = supabase
@@ -123,11 +124,11 @@ export default async function JournalsPage({
       }
       if (fromDate) query = query.gte('date', fromDate)
       if (toDate)   query = query.lte('date', toDate)
-      if (subtypeJournalIds !== null) {
-        if (subtypeJournalIds.length === 0) {
+      if (lineFilterIds !== null) {
+        if (lineFilterIds.length === 0) {
           query = query.eq('id', '00000000-0000-0000-0000-000000000000')
         } else {
-          query = query.in('id', subtypeJournalIds)
+          query = query.in('id', lineFilterIds)
         }
       }
     }

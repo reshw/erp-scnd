@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import NonOpRows from './NonOpRows'
 
 function fmt(n: number) {
   if (n === 0) return '-'
@@ -196,12 +197,21 @@ export default async function MonthlyPage({
 
   // ── 활동구분 집계 ──────────────────────────────────────────────────────────
   const agg: Record<string, Record<string, { debit: number; credit: number }>> = {}
+  // activity_type → subtype → month → {debit, credit} (NonOpRows 아코디언용)
+  const typeSubAgg: Record<string, Record<string, Record<string, { debit: number; credit: number }>>> = {}
   for (const r of matrixRows) {
     const mk = r.month.slice(0, 7)
+    const at = r.activity_type
+    const st = r.activity_subtype
     if (!agg[mk]) agg[mk] = {}
-    if (!agg[mk][r.activity_type]) agg[mk][r.activity_type] = { debit: 0, credit: 0 }
-    agg[mk][r.activity_type].debit  += Number(r.total_debit)
-    agg[mk][r.activity_type].credit += Number(r.total_credit)
+    if (!agg[mk][at]) agg[mk][at] = { debit: 0, credit: 0 }
+    agg[mk][at].debit  += Number(r.total_debit)
+    agg[mk][at].credit += Number(r.total_credit)
+    if (!typeSubAgg[at]) typeSubAgg[at] = {}
+    if (!typeSubAgg[at][st]) typeSubAgg[at][st] = {}
+    if (!typeSubAgg[at][st][mk]) typeSubAgg[at][st][mk] = { debit: 0, credit: 0 }
+    typeSubAgg[at][st][mk].debit  += Number(r.total_debit)
+    typeSubAgg[at][st][mk].credit += Number(r.total_credit)
   }
   const monthNet = (mk: string, type: string) => {
     const d = agg[mk]?.[type]; return d ? d.debit - d.credit : 0
@@ -448,14 +458,21 @@ export default async function MonthlyPage({
                   <td className="px-3 py-2 text-sm text-orange-600">이자비용(영업외)</td>
                   {months.map(mk => {
                     const v = plGet(mk).interest
+                    const href = `/journals?year=${year}&month=${parseInt(mk.slice(5))}&subtype=금융비용`
                     return (
                       <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-50/50' : ''} ${v > 0 ? 'text-orange-600' : 'text-gray-300'}`}>
-                        {v > 0 ? `(${fmt(v)})` : '-'}
+                        {v > 0 ? (
+                          <a href={href} className="hover:underline">({fmt(v)})</a>
+                        ) : '-'}
                       </td>
                     )
                   })}
                   <td className={`text-right px-3 py-2 tabular-nums bg-gray-50 ${annualInterest > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
-                    {annualInterest > 0 ? `(${fmtPL(annualInterest)})` : '-'}
+                    {annualInterest > 0 ? (
+                      <a href={`/journals?year=${year}&subtype=금융비용`} className="hover:underline">
+                        ({fmtPL(annualInterest)})
+                      </a>
+                    ) : '-'}
                   </td>
                 </tr>
               )}
@@ -485,32 +502,13 @@ export default async function MonthlyPage({
               </tr>
 
               {/* 재무활동: 차입 – 상환 */}
-              {(['재무', '세무', '개인', '투자'] as const).map(type => {
-                const labels: Record<string, string> = {
-                  재무: '재무 (차입 – 상환)',
-                  세무: '세금 정산',
-                  개인: '개인 (출자 – 인출)',
-                  투자: '투자 (회수 – 집행)',
-                }
-                const annualV = annualCashImpact(type)
-                const hasData = months.some(mk => cashImpact(mk, type) !== 0)
-                return (
-                  <tr key={type} className={`border-b hover:bg-gray-50 ${!hasData ? 'opacity-30' : ''}`}>
-                    <td className="px-3 py-2 text-sm text-gray-600">{labels[type]}</td>
-                    {months.map(mk => {
-                      const v = cashImpact(mk, type)
-                      return (
-                        <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-50/50' : ''} ${v < 0 ? 'text-red-500' : v > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
-                          {v !== 0 ? fmtPL(v) : '-'}
-                        </td>
-                      )
-                    })}
-                    <td className={`text-right px-3 py-2 tabular-nums bg-gray-50 ${annualV < 0 ? 'text-red-500' : annualV > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-                      {annualV !== 0 ? fmtPL(annualV) : '-'}
-                    </td>
-                  </tr>
-                )
-              })}
+              <NonOpRows
+                months={months}
+                currentMonth={currentMonth}
+                year={year}
+                agg={agg}
+                typeSubAgg={typeSubAgg}
+              />
 
               {/* 최종 현금 순변동 */}
               <tr className="bg-slate-800 text-white font-bold border-t-2">
