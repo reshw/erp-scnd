@@ -53,13 +53,12 @@ type CashflowRow = {
 
 type BalanceLedger = Record<string, { opening: number; debit: number; credit: number; closing: number }>
 
-function buildLedger(rows: CashflowRow[], projectId?: string | null): BalanceLedger {
+function buildLedger(rows: CashflowRow[], projectIds?: string[]): BalanceLedger {
   const byMonth: Record<string, { debit: number; credit: number }> = {}
   for (const r of rows) {
     if (r.activity_type !== '현금') continue
-    if (projectId !== undefined) {
-      if (projectId === null && r.project_id !== null) continue
-      if (projectId !== null && r.project_id !== projectId) continue
+    if (projectIds && projectIds.length > 0) {
+      if (!projectIds.includes(r.project_id ?? '')) continue
     }
     const mk = r.month.slice(0, 7)
     if (!byMonth[mk]) byMonth[mk] = { debit: 0, credit: 0 }
@@ -80,7 +79,7 @@ function buildLedger(rows: CashflowRow[], projectId?: string | null): BalanceLed
 export default async function MonthlyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ project?: string; year?: string }>
+  searchParams: Promise<{ project?: string | string[]; year?: string }>
 }) {
   const params = await searchParams
   const supabase = createAdminClient()
@@ -93,7 +92,14 @@ export default async function MonthlyPage({
     .order('code') as { data: Array<{ id: string; code: string }> | null }
 
   const projList = projects ?? []
-  const selectedProj = params.project ? projList.find(p => p.code === params.project) : null
+
+  // 멀티 프로젝트 선택 파싱
+  const projParam = params.project
+  const selectedCodes: string[] = Array.isArray(projParam)
+    ? projParam
+    : projParam ? [projParam] : []
+  const selectedProjs = projList.filter(p => selectedCodes.includes(p.code))
+  const selectedProjIds = selectedProjs.map(p => p.id)
 
   // 현금 잔고용: 전 기간
   const { data: cashAllTime } = await (supabase as any)
@@ -104,13 +110,14 @@ export default async function MonthlyPage({
 
   const cashRows = cashAllTime ?? []
   const totalLedger = buildLedger(cashRows)
-  const filteredLedger = selectedProj ? buildLedger(cashRows, selectedProj.id) : totalLedger
+  const filteredLedger = selectedProjIds.length > 0
+    ? buildLedger(cashRows, selectedProjIds)
+    : totalLedger
 
+  // 프로젝트별 개별 ledger (항상 생성, 선택된 것만 표시)
   const projectLedgers: Record<string, { code: string; ledger: BalanceLedger }> = {}
-  if (!selectedProj) {
-    for (const p of projList) {
-      projectLedgers[p.id] = { code: p.code, ledger: buildLedger(cashRows, p.id) }
-    }
+  for (const p of projList) {
+    projectLedgers[p.id] = { code: p.code, ledger: buildLedger(cashRows, [p.id]) }
   }
 
   // 활동구분 집계용: 선택 연도
@@ -120,32 +127,39 @@ export default async function MonthlyPage({
     .gte('month', `${year}-01-01`)
     .lte('month', `${year}-12-31`)
     .order('month')
-  if (selectedProj) matrixQuery = matrixQuery.eq('project_id', selectedProj.id)
+  if (selectedProjIds.length === 1) matrixQuery = matrixQuery.eq('project_id', selectedProjIds[0])
+  else if (selectedProjIds.length > 1) matrixQuery = matrixQuery.in('project_id', selectedProjIds)
 
   const { data: rawMatrix } = await matrixQuery as { data: CashflowRow[] | null }
   const matrixRows = rawMatrix ?? []
 
   // ── #12 XIRR 데이터 ───────────────────────────────────────────────────────
-  // 연초 출자잔액: 전년도까지 개인 activity 누계 (monthly_cashflow 사용)
-  const { data: priorPersonalRaw } = await (supabase as any)
+  // 연초 출자잔액: 전년도까지 개인 activity 누계 (프로젝트 필터 적용)
+  let priorQuery = (supabase as any)
     .from('monthly_cashflow')
     .select('total_debit, total_credit')
     .eq('activity_type', '개인')
-    .lt('month', `${year}-01-01`) as { data: Array<{ total_debit: number; total_credit: number }> | null }
+    .lt('month', `${year}-01-01`)
+  if (selectedProjIds.length === 1) priorQuery = priorQuery.eq('project_id', selectedProjIds[0])
+  else if (selectedProjIds.length > 1) priorQuery = priorQuery.in('project_id', selectedProjIds)
+  const { data: priorPersonalRaw } = await priorQuery as { data: Array<{ total_debit: number; total_credit: number }> | null }
 
   const yearStartEquity = (priorPersonalRaw ?? []).reduce(
     (s, r) => s + Number(r.total_credit) - Number(r.total_debit), 0
   )
 
-  // 금년 개인 거래 날짜별 (취소 전표 제외)
-  const { data: personalLinesRaw } = await (supabase as any)
+  // 금년 개인 거래 날짜별 (취소 전표 제외, 프로젝트 필터 적용)
+  let linesQuery = (supabase as any)
     .from('journal_lines')
-    .select('date, debit, credit, journals!inner(is_cancelled)')
+    .select('date, debit, credit, journals!inner(is_cancelled, project_id)')
     .eq('activity_type', '개인')
     .gte('date', `${year}-01-01`)
     .lte('date', `${year}-12-31`)
     .eq('journals.is_cancelled', false)
-    .order('date') as { data: Array<{ date: string; debit: number; credit: number }> | null }
+    .order('date')
+  if (selectedProjIds.length === 1) linesQuery = linesQuery.eq('journals.project_id', selectedProjIds[0])
+  else if (selectedProjIds.length > 1) linesQuery = linesQuery.in('journals.project_id', selectedProjIds)
+  const { data: personalLinesRaw } = await linesQuery as { data: Array<{ date: string; debit: number; credit: number }> | null }
 
   const personalLines = personalLinesRaw ?? []
 
@@ -336,16 +350,26 @@ export default async function MonthlyPage({
       <h2 className="text-xl font-bold">월말마감 보고서</h2>
 
       {/* 필터 */}
-      <form className="flex gap-2 flex-wrap items-center">
+      <form className="flex gap-3 flex-wrap items-center">
         <select name="year" defaultValue={year} className="border rounded px-2 py-1 text-sm">
           {[2023, 2024, 2025, 2026, 2027].map(y => (
             <option key={y} value={y}>{y}년</option>
           ))}
         </select>
-        <select name="project" defaultValue={params.project ?? ''} className="border rounded px-2 py-1 text-sm">
-          <option value="">전체 프로젝트</option>
-          {projList.map(p => <option key={p.id} value={p.code}>{p.code}</option>)}
-        </select>
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {projList.map(p => (
+            <label key={p.id} className={`flex items-center gap-1.5 text-sm border rounded px-2 py-1 cursor-pointer select-none transition-colors ${selectedCodes.includes(p.code) ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white hover:bg-gray-50'}`}>
+              <input
+                type="checkbox"
+                name="project"
+                value={p.code}
+                defaultChecked={selectedCodes.includes(p.code)}
+                className="accent-blue-600"
+              />
+              {p.code}
+            </label>
+          ))}
+        </div>
         <button type="submit" className="border rounded px-3 py-1 text-sm bg-white hover:bg-gray-50">조회</button>
       </form>
 
@@ -528,8 +552,52 @@ export default async function MonthlyPage({
           현금 잔고 추이 ({year}년)
         </h3>
 
-        {selectedProj ? (
-          <CashTable ledger={filteredLedger} label={selectedProj.code} />
+        {selectedProjIds.length > 0 ? (
+          <>
+            <CashTable
+              ledger={filteredLedger}
+              label={selectedProjs.length === 1 ? selectedProjs[0].code : `선택 합산 (${selectedProjs.map(p => p.code).join(' + ')})`}
+            />
+            {selectedProjs.length > 1 && (
+              <div className="mt-4">
+                <h4 className="text-sm font-medium text-gray-600 mb-2">선택 프로젝트 개별 잔고</h4>
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b">
+                        <th className="text-left px-3 py-2 font-medium text-gray-600 w-28">프로젝트</th>
+                        {months.map(mk => (
+                          <th key={mk} className={`text-right px-3 py-2 font-medium w-28 ${mk === currentMonth ? 'text-blue-600 bg-blue-50' : 'text-gray-600'}`}>
+                            {mk.slice(5)}월말
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedProjs.map(p => {
+                        const { ledger } = projectLedgers[p.id]
+                        return (
+                          <tr key={p.id} className="border-b hover:bg-gray-50">
+                            <td className="px-3 py-2 font-mono font-medium text-sm">{p.code}</td>
+                            {months.map(mk => {
+                              const lastKnown = months
+                                .filter(m => m <= mk)
+                                .reduceRight<number | null>((acc, m) => acc !== null ? acc : (projectLedgers[p.id].ledger[m]?.closing ?? null), null)
+                              return (
+                                <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-50/50' : ''} ${lastKnown !== null && lastKnown < 0 ? 'text-red-500' : 'text-gray-700'}`}>
+                                  {lastKnown !== null ? fmtBal(lastKnown) : '-'}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <>
             <CashTable ledger={totalLedger} label="전체 합계" />
@@ -583,7 +651,11 @@ export default async function MonthlyPage({
           섹션 2-B: 출자금 수익률 (XIRR)
       ══════════════════════════════════════════════════════════ */}
       <div className="space-y-3">
-        <h3 className="font-semibold text-base">출자금 수익률 ({year}년 · 연초 리셋 가정)</h3>
+        <h3 className="font-semibold text-base">
+          출자금 수익률 ({year}년 · 연초 리셋 가정
+          {selectedProjs.length > 0 ? ` · ${selectedProjs.map(p => p.code).join(' + ')}` : ' · 전체'}
+          )
+        </h3>
         <div className="border rounded-lg overflow-hidden">
           <div className="p-4 bg-gray-50 border-b grid grid-cols-2 gap-4 sm:grid-cols-4 text-sm">
             <div>
