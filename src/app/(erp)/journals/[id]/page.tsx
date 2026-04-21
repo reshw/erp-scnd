@@ -46,8 +46,16 @@ export default async function JournalDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div className="max-w-4xl space-y-4">
+      {j.is_cancelled && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2.5 text-sm text-red-700 font-medium">
+          취소된 전표입니다. 이 전표의 금액은 잔액에 반영되지 않습니다.
+        </div>
+      )}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold">전표 #{j.journal_no}</h2>
+        <h2 className="text-xl font-bold">
+          전표 #{j.journal_no}
+          {j.is_cancelled && <span className="ml-2 text-sm font-normal text-red-500">(취소)</span>}
+        </h2>
         <div className="flex gap-2">
           <Link href={`/journals/new?copy=${id}`}>
             <Button size="sm" variant="outline">이 전표 복사</Button>

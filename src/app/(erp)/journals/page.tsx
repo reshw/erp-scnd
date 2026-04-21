@@ -21,41 +21,107 @@ const ACTIVITY_COLOR: Record<string, string> = {
 export default async function JournalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ project?: string; from?: string; to?: string }>
+  searchParams: Promise<{
+    no?: string
+    project?: string
+    from?: string
+    to?: string
+    year?: string
+    month?: string
+    subtype?: string
+  }>
 }) {
   const params = await searchParams
   const supabase = createAdminClient()
+
+  // year/month → date range 변환 (from/to보다 우선)
+  let fromDate = params.from ?? ''
+  let toDate   = params.to   ?? ''
+  if (params.year && params.month) {
+    const y = parseInt(params.year), m = parseInt(params.month)
+    fromDate = `${y}-${String(m).padStart(2, '0')}-01`
+    const lastDay = new Date(y, m, 0).getDate()
+    toDate = `${y}-${String(m).padStart(2, '0')}-${lastDay}`
+  } else if (params.year) {
+    fromDate = `${params.year}-01-01`
+    toDate   = `${params.year}-12-31`
+  }
+
+  // subtype 필터: journal_lines에서 해당 subtype을 가진 journal_id 목록 추출
+  let subtypeJournalIds: string[] | null = null
+  if (params.subtype) {
+    let lq = (supabase as any)
+      .from('journal_lines')
+      .select('journal_id')
+      .eq('activity_subtype', params.subtype)
+    if (fromDate) lq = lq.gte('date', fromDate)
+    if (toDate)   lq = lq.lte('date', toDate)
+    const { data: lineRows } = await lq as { data: Array<{ journal_id: string }> | null }
+    subtypeJournalIds = [...new Set((lineRows ?? []).map(l => l.journal_id))]
+  }
 
   let query = supabase
     .from('journals')
     .select(`
       id, journal_no, date, description, is_cancelled,
       projects!left(code),
-      journal_lines(debit, credit, classification, counterparty_name, accounts!inner(name))
+      journal_lines(debit, credit, classification, activity_subtype, counterparty_name, accounts!inner(name))
     `)
     .order('date', { ascending: false })
     .order('journal_no', { ascending: false })
     .limit(1000)
 
-  if (params.project) {
-    const { data: proj } = await (supabase as any)
-      .from('projects')
-      .select('id')
-      .eq('code', params.project)
-      .single() as { data: { id: string } | null }
-    if (proj) query = query.eq('project_id', proj.id)
+  // 전표번호 직접 검색
+  if (params.no) {
+    const noNum = parseInt(params.no)
+    if (!isNaN(noNum)) query = query.eq('journal_no', noNum)
+  } else {
+    // 프로젝트 필터
+    if (params.project) {
+      const { data: proj } = await (supabase as any)
+        .from('projects')
+        .select('id')
+        .eq('code', params.project)
+        .single() as { data: { id: string } | null }
+      if (proj) query = query.eq('project_id', proj.id)
+    }
+    // 날짜 필터
+    if (fromDate) query = query.gte('date', fromDate)
+    if (toDate)   query = query.lte('date', toDate)
+    // subtype 필터 (journal_id 목록으로 in 필터)
+    if (subtypeJournalIds !== null) {
+      if (subtypeJournalIds.length === 0) {
+        // 결과 없음 처리
+        query = query.eq('id', '00000000-0000-0000-0000-000000000000')
+      } else {
+        query = query.in('id', subtypeJournalIds)
+      }
+    }
   }
-  if (params.from) query = query.gte('date', params.from)
-  if (params.to)   query = query.lte('date', params.to)
 
   const { data: journals } = await query
   const rows = (journals ?? []) as unknown as Array<{
     id: string; journal_no: number; date: string; description: string | null; is_cancelled: boolean
     projects: { code: string } | null
-    journal_lines: Array<{ debit: number; credit: number; classification: string; counterparty_name: string | null; accounts: { name: string } }>
+    journal_lines: Array<{
+      debit: number; credit: number; classification: string
+      activity_subtype: string | null; counterparty_name: string | null
+      accounts: { name: string }
+    }>
   }>
 
   const { data: projects } = await (supabase as any).from('projects').select('code').order('code') as { data: Array<{ code: string }> | null }
+
+  // 활성 필터 chip 표시용
+  const activeFilters: string[] = []
+  if (params.year && params.month) activeFilters.push(`${params.year}년 ${params.month}월`)
+  else if (params.year) activeFilters.push(`${params.year}년`)
+  if (params.subtype) activeFilters.push(params.subtype)
+
+  const clearFilterUrl = new URLSearchParams()
+  if (params.project) clearFilterUrl.set('project', params.project)
+  if (params.from) clearFilterUrl.set('from', params.from)
+  if (params.to) clearFilterUrl.set('to', params.to)
 
   return (
     <div className="space-y-4">
@@ -72,10 +138,16 @@ export default async function JournalsPage({
       </div>
 
       {/* 필터 */}
-      <form className="flex gap-2 flex-wrap">
+      <form className="flex gap-2 flex-wrap items-center">
+        <input
+          type="number"
+          name="no"
+          defaultValue={params.no ?? ''}
+          placeholder="전표번호"
+          className="border rounded px-2 py-1 text-sm w-24"
+        />
         <select name="project" defaultValue={params.project ?? ''}
-          className="border rounded px-2 py-1 text-sm"
->
+          className="border rounded px-2 py-1 text-sm">
           <option value="">전체 프로젝트</option>
           {(projects ?? []).map(p => (
             <option key={p.code} value={p.code}>{p.code}</option>
@@ -87,6 +159,21 @@ export default async function JournalsPage({
           className="border rounded px-2 py-1 text-sm" />
         <Button type="submit" size="sm" variant="outline">조회</Button>
       </form>
+
+      {/* 활성 필터 chip (월말마감 등 외부에서 링크로 넘어온 경우) */}
+      {activeFilters.length > 0 && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-500">필터:</span>
+          {activeFilters.map((f, i) => (
+            <span key={i} className="bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-0.5 text-xs font-medium">
+              {f}
+            </span>
+          ))}
+          <Link href={`/journals?${clearFilterUrl.toString()}`} className="text-xs text-gray-400 hover:text-gray-600 underline ml-1">
+            필터 초기화
+          </Link>
+        </div>
+      )}
 
       <div className="text-sm text-gray-500">{rows.length}건</div>
 
@@ -106,14 +193,12 @@ export default async function JournalsPage({
           </TableHeader>
           <TableBody>
             {rows.map((j) => {
-              const totalDebit  = j.journal_lines.reduce((s, l) => s + (l.debit  ?? 0), 0)
-              const totalCredit = j.journal_lines.reduce((s, l) => s + (l.credit ?? 0), 0)
               const lines = j.journal_lines
 
               return lines.map((line, li) => (
                 <TableRow
                   key={`${j.id}-${li}`}
-                  className={`${j.is_cancelled ? 'opacity-40 line-through' : ''} ${li === 0 ? 'border-t-2 border-gray-200' : ''} hover:bg-gray-50`}
+                  className={`${j.is_cancelled ? 'opacity-40 line-through bg-red-50/30' : ''} ${li === 0 ? 'border-t-2 border-gray-200' : ''} hover:bg-gray-50`}
                 >
                   {li === 0 && (
                     <>
@@ -121,6 +206,9 @@ export default async function JournalsPage({
                         <Link href={`/journals/${j.id}`} className="hover:underline text-blue-600">
                           {j.journal_no}
                         </Link>
+                        {j.is_cancelled && (
+                          <div className="text-xs text-red-500 font-medium mt-0.5">취소</div>
+                        )}
                       </TableCell>
                       <TableCell rowSpan={lines.length} className="text-sm border-r align-top pt-3 whitespace-nowrap">
                         {j.date}
@@ -137,6 +225,9 @@ export default async function JournalsPage({
                       </span>
                       <span>{line.accounts?.name}</span>
                     </div>
+                    {line.activity_subtype && (
+                      <div className="text-xs text-gray-400 mt-0.5 ml-0.5">{line.activity_subtype}</div>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-gray-500">
                     {line.counterparty_name ?? ''}
