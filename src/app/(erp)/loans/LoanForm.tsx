@@ -28,6 +28,7 @@ export default function LoanForm({
       start_date:    fd.get('start_date'),
       end_date:      fd.get('end_date'),
       loan_type:     fd.get('loan_type'),
+      interest_calc: fd.get('interest_calc'),
       counterparty_id: fd.get('counterparty_id') || null,
       project_id:    fd.get('project_id') || null,
     }
@@ -84,6 +85,14 @@ export default function LoanForm({
             <option value="원리금균등">원리금균등상환</option>
             <option value="원금균등">원금균등상환</option>
             <option value="만기일시">만기일시상환</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">이자 계산 방식</label>
+          <select name="interest_calc" className="border rounded px-3 py-2 text-sm w-full">
+            <option value="monthly">월할 (연이율÷12) — 은행 표준</option>
+            <option value="daily_30">일할 30일 고정 (연이율÷365×30)</option>
+            <option value="daily_actual">일할 실일수 (연이율÷365×실일수)</option>
           </select>
         </div>
         <div>

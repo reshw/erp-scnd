@@ -7,19 +7,30 @@ function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
 }
 
-/** 원리금균등상환 스케줄 계산 */
-function calcSchedule(principal: number, annualRate: number, startDate: string, endDate: string) {
+/** 원리금균등상환 스케줄 계산
+ *  interest_calc:
+ *    monthly      전월잔고 × 연이율/12           (은행 표준, trunc)
+ *    daily_30     전월잔고 × 연이율/365 × 30      (30일 고정, trunc)
+ *    daily_actual 전월잔고 × 연이율/365 × 실일수  (trunc)
+ */
+function calcSchedule(
+  principal: number,
+  annualRate: number,
+  startDate: string,
+  endDate: string,
+  interestCalc: string = 'monthly',
+) {
   const r = annualRate / 12
   const start = new Date(startDate)
-  const end = new Date(endDate)
+  const end   = new Date(endDate)
   const n = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth())
 
   if (n <= 0) return []
 
-  // 월 납부액 (원리금균등)
-  const monthlyPayment = r === 0
-    ? principal / n
-    : principal * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1)
+  // PMT: 연이율/12 기준으로 고정 (정수로 올림)
+  const pmt = Math.round(
+    r === 0 ? principal / n : principal * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1)
+  )
 
   const rows = []
   let balance = principal
@@ -29,16 +40,27 @@ function calcSchedule(principal: number, annualRate: number, startDate: string, 
     d.setMonth(d.getMonth() + i + 1)
     const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 
-    const interest = balance * r
-    const repayment = monthlyPayment - interest
+    // 이자: 소수점 버림 (trunc)
+    let interest: number
+    if (interestCalc === 'daily_30') {
+      interest = Math.trunc(balance * annualRate / 365 * 30)
+    } else if (interestCalc === 'daily_actual') {
+      const daysInMonth = new Date(d.getFullYear(), d.getMonth(), 0).getDate()
+      interest = Math.trunc(balance * annualRate / 365 * daysInMonth)
+    } else {
+      // monthly (기본): 연이율/12
+      interest = Math.trunc(balance * annualRate / 12)
+    }
+
+    const repayment = pmt - interest
     balance -= repayment
 
     rows.push({
       month,
-      payment: Math.round(monthlyPayment),
-      interest: Math.round(interest),
-      repayment: Math.round(repayment),
-      balance: Math.max(0, Math.round(balance)),
+      payment: pmt,
+      interest,
+      repayment,
+      balance: Math.max(0, balance),
     })
   }
 
@@ -62,6 +84,7 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
     Number(loan.interest_rate),
     loan.start_date,
     loan.end_date,
+    loan.interest_calc ?? 'monthly',
   )
 
   const today = new Date().toISOString().slice(0, 7) // YYYY-MM

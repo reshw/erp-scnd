@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
       start_date:    body.start_date,
       end_date:      body.end_date,
       loan_type:     body.loan_type ?? '원리금균등',
+      interest_calc: body.interest_calc ?? 'monthly',
       counterparty_id: body.counterparty_id || null,
       project_id:    body.project_id || null,
     })
