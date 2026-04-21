@@ -33,6 +33,28 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(data)
 }
 
+export async function PUT(req: NextRequest) {
+  const supabase = createAdminClient()
+  const body = await req.json()
+  const { error } = await (supabase as any)
+    .from('loans')
+    .update({
+      name:                body.name,
+      principal:           body.principal,
+      interest_rate:       body.interest_rate,
+      start_date:          body.start_date,
+      end_date:            body.end_date,
+      loan_type:           body.loan_type ?? '원리금균등',
+      interest_calc:       body.interest_calc ?? 'monthly',
+      first_month_partial: body.first_month_partial ?? true,
+      counterparty_id:     body.counterparty_id || null,
+      project_id:          body.project_id || null,
+    })
+    .eq('id', body.id) as any
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
+
 export async function DELETE(req: NextRequest) {
   const supabase = createAdminClient()
   const { id } = await req.json()
