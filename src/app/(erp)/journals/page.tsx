@@ -4,6 +4,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
+import MonthNav from './MonthNav'
+import FilterPanel from './FilterPanel'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(n)
@@ -23,7 +25,11 @@ export default async function JournalsPage({
 }: {
   searchParams: Promise<{
     no?: string
-    project?: string
+    projects?: string   // 체크박스: comma-sep project codes
+    project?: string    // MonthNav 호환 (단일)
+    account_ids?: string // 체크박스: comma-sep account UUIDs
+    cp_ids?: string      // 체크박스: comma-sep counterparty UUIDs
+    note?: string
     from?: string
     to?: string
     year?: string
@@ -37,33 +43,31 @@ export default async function JournalsPage({
   const params = await searchParams
   const supabase = createAdminClient()
 
-  const hasFilter = !!(params.no || params.project || params.from || params.to ||
-                       params.year || params.month || params.type || params.subtype)
+  const hasFilter = !!(
+    params.no || params.projects || params.project ||
+    params.from || params.to || params.year || params.month ||
+    params.type || params.subtype ||
+    params.account_ids || params.cp_ids || params.note
+  )
   const searched  = params.searched === '1'
   const showAll   = params.all === '1'
-
-  // ── 프로젝트 목록 (필터 폼용, 항상 로드) ────────────────────────────────
-  const { data: projects } = await (supabase as any)
-    .from('projects').select('code').order('code') as { data: Array<{ code: string }> | null }
-
-  // ── 조회 미실행 상태 ──────────────────────────────────────────────────────
-  // 1) 첫 방문 (searched 없음, all 없음): 폼만 표시
-  // 2) 빈 필터로 조회 (searched=1, 필터 없음, all 없음): 전체조회 경고
   const needsConfirm = searched && !hasFilter && !showAll
   const shouldFetch  = hasFilter || showAll
 
-  // ── 활성 필터 chip용 ──────────────────────────────────────────────────────
-  const activeFilters: string[] = []
-  if (params.year && params.month) activeFilters.push(`${params.year}년 ${params.month}월`)
-  else if (params.year) activeFilters.push(`${params.year}년`)
-  if (params.type) activeFilters.push(params.type)
-  if (params.subtype) activeFilters.push(params.subtype)
+  // ── 필터 패널용 목록 ──────────────────────────────────────────────────────
+  const [
+    { data: projectRows },
+    { data: accountRows },
+    { data: cpRows },
+  ] = await Promise.all([
+    (supabase as any).from('projects').select('code').order('code') as any,
+    (supabase as any).from('accounts').select('id,name').eq('is_active', true).order('name') as any,
+    (supabase as any).from('counterparties').select('id,name').order('name') as any,
+  ])
 
-  const clearFilterUrl = new URLSearchParams()
-  if (params.project) clearFilterUrl.set('project', params.project)
-  if (params.from) clearFilterUrl.set('from', params.from)
-  if (params.to) clearFilterUrl.set('to', params.to)
-  clearFilterUrl.set('searched', '1')
+  const projectCodes: string[] = (projectRows ?? []).map((p: any) => p.code)
+  const accountList: { id: string; name: string }[] = accountRows ?? []
+  const cpList: { id: string; name: string }[]      = cpRows ?? []
 
   // ── 데이터 fetch ──────────────────────────────────────────────────────────
   let rows: Array<{
@@ -77,7 +81,7 @@ export default async function JournalsPage({
   }> = []
 
   if (shouldFetch) {
-    // year/month → date range 변환
+    // year/month → date range
     let fromDate = params.from ?? ''
     let toDate   = params.to   ?? ''
     if (params.year && params.month) {
@@ -90,16 +94,26 @@ export default async function JournalsPage({
       toDate   = `${params.year}-12-31`
     }
 
-    // type / subtype 필터: journal_lines에서 해당 조건의 journal_id 목록 추출
+    // journal_lines 레벨 필터 → journal_id 목록
     let lineFilterIds: string[] | null = null
-    if (params.type || params.subtype) {
-      let lq = (supabase as any).from('journal_lines').select('journal_id')
-      if (params.type)    lq = lq.eq('activity_type', params.type)
-      if (params.subtype) lq = lq.eq('activity_subtype', params.subtype)
-      if (fromDate) lq = lq.gte('date', fromDate)
-      if (toDate)   lq = lq.lte('date', toDate)
-      const { data: lineRows } = await lq as { data: Array<{ journal_id: string }> | null }
-      lineFilterIds = [...new Set((lineRows ?? []).map(l => l.journal_id))]
+    const selAccountIds = params.account_ids?.split(',').filter(Boolean) ?? []
+    const selCpIds      = params.cp_ids?.split(',').filter(Boolean) ?? []
+    const hasLineFilter = !!(params.type || params.subtype || selAccountIds.length || selCpIds.length)
+
+    if (hasLineFilter) {
+      if (selAccountIds.length === 0 && selCpIds.length === 0 && !params.type && !params.subtype) {
+        lineFilterIds = []
+      } else {
+        let lq = (supabase as any).from('journal_lines').select('journal_id')
+        if (params.type)          lq = lq.eq('activity_type', params.type)
+        if (params.subtype)       lq = lq.eq('activity_subtype', params.subtype)
+        if (selAccountIds.length) lq = lq.in('account_id', selAccountIds)
+        if (selCpIds.length)      lq = lq.in('counterparty_id', selCpIds)
+        if (fromDate) lq = lq.gte('date', fromDate)
+        if (toDate)   lq = lq.lte('date', toDate)
+        const { data: lineRows } = await lq as any
+        lineFilterIds = [...new Set<string>((lineRows ?? []).map((l: any) => l.journal_id))]
+      }
     }
 
     let query = supabase
@@ -117,13 +131,24 @@ export default async function JournalsPage({
       const noNum = parseInt(params.no)
       if (!isNaN(noNum)) query = query.eq('journal_no', noNum)
     } else {
-      if (params.project) {
+      // 프로젝트 필터: projects (multi) 또는 project (단일, MonthNav 호환)
+      const selProjects = params.projects?.split(',').filter(Boolean) ?? []
+      if (selProjects.length > 0) {
+        const { data: projIds } = await (supabase as any)
+          .from('projects').select('id,code').in('code', selProjects) as any
+        const ids = (projIds ?? []).map((p: any) => p.id)
+        if (ids.length > 0) query = query.in('project_id', ids)
+        else query = query.eq('id', '00000000-0000-0000-0000-000000000000')
+      } else if (params.project) {
         const { data: proj } = await (supabase as any)
-          .from('projects').select('id').eq('code', params.project).single() as { data: { id: string } | null }
+          .from('projects').select('id').eq('code', params.project).single() as any
         if (proj) query = query.eq('project_id', proj.id)
       }
-      if (fromDate) query = query.gte('date', fromDate)
-      if (toDate)   query = query.lte('date', toDate)
+
+      if (fromDate)  query = query.gte('date', fromDate)
+      if (toDate)    query = query.lte('date', toDate)
+      if (params.note) query = (query as any).ilike('description', `%${params.note}%`)
+
       if (lineFilterIds !== null) {
         if (lineFilterIds.length === 0) {
           query = query.eq('id', '00000000-0000-0000-0000-000000000000')
@@ -137,8 +162,26 @@ export default async function JournalsPage({
     rows = (journals ?? []) as typeof rows
   }
 
-  // ── 전체 조회 확인 URL (all=1 추가, searched는 제거) ──────────────────────
+  // ── 합계 계산 ─────────────────────────────────────────────────────────────
+  let totalDebit = 0, totalCredit = 0
+  for (const j of rows) {
+    for (const l of j.journal_lines) {
+      totalDebit  += l.debit
+      totalCredit += l.credit
+    }
+  }
+
   const confirmAllUrl = '/journals?all=1'
+
+  // MonthNav extra (단일 project 호환 유지)
+  const currentYm = (params.year && params.month)
+    ? `${params.year}-${String(parseInt(params.month)).padStart(2, '0')}`
+    : ''
+  const navExtra: Record<string, string> = {}
+  if (params.project)  navExtra.project  = params.project
+  if (params.projects) navExtra.projects = params.projects
+  if (params.type)     navExtra.type     = params.type
+  if (params.subtype)  navExtra.subtype  = params.subtype
 
   return (
     <div className="space-y-4">
@@ -154,74 +197,36 @@ export default async function JournalsPage({
         </div>
       </div>
 
-      {/* 필터 폼 */}
-      <form className="flex gap-2 flex-wrap items-center">
-        <input type="hidden" name="searched" value="1" />
-        <input
-          type="number"
-          name="no"
-          defaultValue={params.no ?? ''}
-          placeholder="전표번호"
-          className="border rounded px-2 py-1 text-sm w-24"
-        />
-        <select name="project" defaultValue={params.project ?? ''}
-          className="border rounded px-2 py-1 text-sm">
-          <option value="">전체 프로젝트</option>
-          {(projects ?? []).map(p => (
-            <option key={p.code} value={p.code}>{p.code}</option>
-          ))}
-        </select>
-        <input type="date" name="from" defaultValue={params.from ?? ''}
-          className="border rounded px-2 py-1 text-sm" />
-        <input type="date" name="to" defaultValue={params.to ?? ''}
-          className="border rounded px-2 py-1 text-sm" />
-        <Button type="submit" size="sm" variant="outline">조회</Button>
-      </form>
+      <MonthNav currentYm={currentYm} extra={navExtra} />
 
-      {/* 활성 필터 chip */}
-      {activeFilters.length > 0 && (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-gray-500">필터:</span>
-          {activeFilters.map((f, i) => (
-            <span key={i} className="bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-0.5 text-xs font-medium">
-              {f}
-            </span>
-          ))}
-          <Link href={`/journals?${clearFilterUrl.toString()}`} className="text-xs text-gray-400 hover:text-gray-600 underline ml-1">
-            필터 초기화
-          </Link>
-        </div>
-      )}
+      <FilterPanel
+        projects={projectCodes}
+        accounts={accountList}
+        counterparties={cpList}
+      />
 
-      {/* 전체 조회 경고 */}
       {needsConfirm && (
         <div className="border border-yellow-300 bg-yellow-50 rounded-lg p-5 space-y-3">
           <div className="flex items-start gap-3">
             <span className="text-yellow-500 text-xl">⚠</span>
             <div>
               <p className="font-semibold text-gray-800">전체 전표를 조회합니까?</p>
-              <p className="text-sm text-gray-500 mt-0.5">필터 없이 조회하면 전체 데이터를 불러옵니다. 건수가 많을 경우 시간이 걸릴 수 있습니다.</p>
+              <p className="text-sm text-gray-500 mt-0.5">필터 없이 조회하면 전체 데이터를 불러옵니다.</p>
             </div>
           </div>
           <div className="flex gap-2">
-            <Link href={confirmAllUrl}>
-              <Button size="sm">확인 — 전체 조회</Button>
-            </Link>
-            <Link href="/journals">
-              <Button size="sm" variant="outline">취소</Button>
-            </Link>
+            <Link href={confirmAllUrl}><Button size="sm">확인 — 전체 조회</Button></Link>
+            <Link href="/journals"><Button size="sm" variant="outline">취소</Button></Link>
           </div>
         </div>
       )}
 
-      {/* 초기 안내 */}
       {!searched && !showAll && (
         <div className="text-sm text-gray-400 py-8 text-center border rounded-lg">
           필터를 설정하고 조회 버튼을 누르세요.
         </div>
       )}
 
-      {/* 결과 */}
       {shouldFetch && (
         <>
           <div className="text-sm text-gray-500">{rows.length}건</div>
@@ -294,6 +299,15 @@ export default async function JournalsPage({
                   ))
                 })}
               </TableBody>
+              {rows.length > 0 && (
+                <tfoot>
+                  <tr className="bg-gray-50 border-t-2 border-gray-300 font-semibold text-sm">
+                    <td colSpan={6} className="px-4 py-2 text-gray-500">합계 ({rows.length}건)</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{fmt(totalDebit)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{fmt(totalCredit)}</td>
+                  </tr>
+                </tfoot>
+              )}
             </Table>
           </div>
         </>

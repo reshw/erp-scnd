@@ -1,3 +1,4 @@
+import { connection } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,6 +9,7 @@ function fmt(n: number) {
 }
 
 export default async function DashboardPage() {
+  await connection()
   const supabase = createAdminClient()
 
   // 보통예금 account ID 조회
@@ -139,7 +141,19 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold">대시보드</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-xl font-bold">대시보드</h2>
+        {unbalancedJournals.length === 0 && unbalancedProjects.length === 0 && (
+          <span
+            title="무결성 검사 완료 — 모든 전표의 차변·대변이 일치합니다."
+            className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center cursor-default shrink-0"
+          >
+            <svg viewBox="0 0 12 12" className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="2,6 5,9 10,3" />
+            </svg>
+          </span>
+        )}
+      </div>
 
       {/* 프로젝트별 / 통장별 잔고 */}
       <div className="grid grid-cols-2 gap-4">
@@ -202,13 +216,6 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* 무결성 검사 */}
-      {unbalancedJournals.length === 0 && unbalancedProjects.length === 0 && (
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
-          <span>✓</span>
-          <span>무결성 검사 완료 — 모든 전표의 차변·대변이 일치합니다.</span>
-        </div>
-      )}
       {(unbalancedJournals.length > 0 || unbalancedProjects.length > 0) && (
         <div className="space-y-2">
           {/* 전표 불균형 */}

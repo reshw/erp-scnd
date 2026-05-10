@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
+import { syncLoanExecutions } from '@/lib/loans/syncExecutions'
 
 export async function GET() {
   const supabase = createAdminClient()
@@ -17,19 +18,27 @@ export async function POST(req: NextRequest) {
   const { data, error } = await (supabase as any)
     .from('loans')
     .insert({
-      name:          body.name,
-      principal:     body.principal,
-      interest_rate: body.interest_rate,
-      start_date:    body.start_date,
-      end_date:      body.end_date,
-      loan_type:     body.loan_type ?? '원리금균등',
-      interest_calc: body.interest_calc ?? 'monthly',
-      counterparty_id: body.counterparty_id || null,
-      project_id:    body.project_id || null,
+      name:             body.name,
+      principal:        body.principal ?? null,
+      interest_rate:    body.interest_rate,
+      start_date:       body.start_date,
+      end_date:         body.end_date,
+      loan_type:        body.loan_type ?? '원리금균등',
+      interest_calc:    body.interest_calc ?? 'monthly',
+      payment_day:      body.payment_day ?? null,
+      pmt_floor:        body.pmt_floor ?? false,
+      interest_round:   body.interest_round ?? 'round',
+      counterparty_id:  body.counterparty_id || null,
+      project_id:       body.project_id || null,
+      overdraft_limit:  body.overdraft_limit ?? null,
+      include_draw_day: body.include_draw_day ?? true,
+      account_id:       body.account_id || null,
+      bank_account_id:  body.bank_account_id || null,
     })
     .select()
     .single() as any
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  await syncLoanExecutions(supabase, data.id)
   return NextResponse.json(data)
 }
 
@@ -40,18 +49,26 @@ export async function PUT(req: NextRequest) {
     .from('loans')
     .update({
       name:                body.name,
-      principal:           body.principal,
+      principal:           body.principal ?? null,
       interest_rate:       body.interest_rate,
       start_date:          body.start_date,
       end_date:            body.end_date,
       loan_type:           body.loan_type ?? '원리금균등',
       interest_calc:       body.interest_calc ?? 'monthly',
       first_month_partial: body.first_month_partial ?? true,
+      payment_day:         body.payment_day ?? null,
+      pmt_floor:           body.pmt_floor ?? false,
+      interest_round:      body.interest_round ?? 'round',
       counterparty_id:     body.counterparty_id || null,
       project_id:          body.project_id || null,
+      overdraft_limit:     body.overdraft_limit ?? null,
+      include_draw_day:    body.include_draw_day ?? true,
+      account_id:          body.account_id || null,
+      bank_account_id:     body.bank_account_id || null,
     })
     .eq('id', body.id) as any
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  await syncLoanExecutions(supabase, body.id)
   return NextResponse.json({ ok: true })
 }
 

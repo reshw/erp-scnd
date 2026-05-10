@@ -230,7 +230,7 @@ export default function JournalForm({
         .map(l => ({
           account_id:        l.account_id,
           classification:    l.classification,
-          activity_type:     l.classification.split(' - ')[0],
+          activity_type:     accountMap[l.account_id]?.activity_type ?? l.classification.split(' - ')[0],
           activity_subtype:  l.classification.split(' - ')[1] ?? '',
           debit:             Math.round(parseAmt(l.debit)),
           credit:            Math.round(parseAmt(l.credit)),
@@ -335,7 +335,15 @@ export default function JournalForm({
                 </td>
                 <td className="px-1 py-1">
                   <input value={line.counterparty_name}
-                    onChange={e => updateField(i, 'counterparty_name', e.target.value)}
+                    onChange={e => {
+                      const name = e.target.value
+                      const found = counterparties.find(c => c.name === name)
+                      setLines(prev => {
+                        const next = [...prev]
+                        next[i] = { ...next[i], counterparty_name: name, counterparty_id: found?.id ?? '' }
+                        return next
+                      })
+                    }}
                     list="cp-list"
                     className="border rounded px-2 py-1 text-sm w-full" placeholder="거래처" />
                 </td>
