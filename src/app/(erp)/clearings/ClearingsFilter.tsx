@@ -5,12 +5,6 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import DateRangePicker from '@/components/ui/DateRangePicker'
 
-interface Props {
-  accounts: { id: string; name: string }[]
-  projects: { id: string; code: string }[]
-  counterparties: { id: string; name: string }[]
-}
-
 function SearchSelect({
   options,
   value,
@@ -67,35 +61,33 @@ function SearchSelect({
   )
 }
 
-export default function LedgerFilter({ accounts, projects, counterparties }: Props) {
+export default function ClearingsFilter({ accounts }: { accounts: { id: string; name: string }[] }) {
   const router = useRouter()
   const sp = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
-  const [accountId,  setAccountId]  = useState(sp.get('account_id') ?? '')
-  const [projectId,  setProjectId]  = useState(sp.get('project_id') ?? '')
-  const [cpId,       setCpId]       = useState(sp.get('cp_id') ?? '')
-  const [from,       setFrom]       = useState(sp.get('from') ?? '')
-  const [to,         setTo]         = useState(sp.get('to') ?? '')
+  const [accountId, setAccountId] = useState(sp.get('account_id') ?? '')
+  const [from,      setFrom]      = useState(sp.get('from') ?? '')
+  const [to,        setTo]        = useState(sp.get('to') ?? '')
+  const [openOnly,  setOpenOnly]  = useState(sp.get('open_only') === '1')
 
   function buildParams(f: string, t: string) {
     const params = new URLSearchParams()
     params.set('account_id', accountId)
-    if (projectId) params.set('project_id', projectId)
-    if (cpId)      params.set('cp_id', cpId)
     if (f) params.set('from', f)
     if (t) params.set('to', t)
+    if (openOnly) params.set('open_only', '1')
     return params
   }
 
   function apply() {
     if (!accountId) return
-    startTransition(() => router.push(`/ledger?${buildParams(from, to).toString()}`))
+    startTransition(() => router.push(`/clearings?${buildParams(from, to).toString()}`))
   }
 
   return (
     <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
         <div>
           <div className="text-xs font-semibold text-gray-600 mb-1">계정과목 *</div>
           <SearchSelect
@@ -107,40 +99,31 @@ export default function LedgerFilter({ accounts, projects, counterparties }: Pro
           />
         </div>
         <div>
-          <div className="text-xs font-semibold text-gray-600 mb-1">프로젝트</div>
-          <SearchSelect
-            options={projects.map(p => ({ id: p.id, label: p.code }))}
-            value={projectId}
-            onChange={setProjectId}
-            placeholder="전체"
-          />
-        </div>
-        <div>
-          <div className="text-xs font-semibold text-gray-600 mb-1">거래처</div>
-          <SearchSelect
-            options={counterparties.map(c => ({ id: c.id, label: c.name }))}
-            value={cpId}
-            onChange={setCpId}
-            placeholder="전체"
-          />
-        </div>
-        <div>
           <div className="text-xs font-semibold text-gray-600 mb-1">기간</div>
-          <div className="flex items-center gap-2">
-            <DateRangePicker
-              from={from}
-              to={to}
-              onChange={(f, t) => { setFrom(f); setTo(t) }}
-              onMonthChange={(f, t) => {
-                if (!accountId) return
-                setFrom(f); setTo(t)
-                startTransition(() => router.push(`/ledger?${buildParams(f, t).toString()}`))
-              }}
+          <DateRangePicker
+            from={from}
+            to={to}
+            onChange={(f, t) => { setFrom(f); setTo(t) }}
+            onMonthChange={(f, t) => {
+              if (!accountId) return
+              setFrom(f); setTo(t)
+              startTransition(() => router.push(`/clearings?${buildParams(f, t).toString()}`))
+            }}
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 cursor-pointer text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={openOnly}
+              onChange={e => setOpenOnly(e.target.checked)}
+              className="rounded"
             />
-            <Button size="sm" onClick={apply} disabled={isPending || !accountId}>
-              {isPending ? '…' : '조회'}
-            </Button>
-          </div>
+            미결만 보기
+          </label>
+          <Button size="sm" onClick={apply} disabled={isPending || !accountId}>
+            {isPending ? '…' : '조회'}
+          </Button>
         </div>
       </div>
     </div>

@@ -52,13 +52,15 @@ function AccountCombobox({
   name: string
   onChange: (id: string, name: string) => void
 }) {
-  const [query, setQuery]     = useState(name)
-  const [open, setOpen]       = useState(false)
-  const [rect, setRect]       = useState<DOMRect | null>(null)
+  const [query, setQuery]           = useState(name)
+  const [open, setOpen]             = useState(false)
+  const [rect, setRect]             = useState<DOMRect | null>(null)
+  const [highlightIdx, setHighlight] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef  = useRef<HTMLUListElement>(null)
 
   useEffect(() => { setQuery(name) }, [name])
+  useEffect(() => { setHighlight(0) }, [query])
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -90,6 +92,22 @@ function AccountCombobox({
     onChange(a.id, a.name)
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open || filtered.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHighlight(i => Math.min(i + 1, filtered.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHighlight(i => Math.max(i - 1, 0))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()  // 폼 제출 차단
+      if (filtered[highlightIdx]) select(filtered[highlightIdx])
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+    }
+  }
+
   return (
     <div className="relative">
       <input
@@ -97,6 +115,7 @@ function AccountCombobox({
         value={query}
         onChange={handleChange}
         onFocus={handleFocus}
+        onKeyDown={handleKeyDown}
         placeholder="계정 검색"
         className="border rounded px-2 py-1 text-sm w-full"
         autoComplete="off"
@@ -113,11 +132,13 @@ function AccountCombobox({
           }}
           className="bg-white border rounded shadow-lg max-h-52 overflow-y-auto text-sm"
         >
-          {filtered.map(a => (
+          {filtered.map((a, idx) => (
             <li
               key={a.id}
               onMouseDown={() => select(a)}
-              className={`px-3 py-1.5 cursor-pointer hover:bg-blue-50 ${a.id === value ? 'bg-blue-100 font-medium' : ''}`}
+              className={`px-3 py-1.5 cursor-pointer hover:bg-blue-50 ${
+                idx === highlightIdx ? 'bg-blue-100 font-medium' : ''
+              }`}
             >
               {a.name}
             </li>
@@ -259,7 +280,13 @@ export default function JournalForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form
+      onSubmit={handleSubmit}
+      onKeyDown={e => {
+        if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'BUTTON') e.preventDefault()
+      }}
+      className="space-y-4"
+    >
       {/* 헤더 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-gray-50 p-4 rounded-lg">
         <div>

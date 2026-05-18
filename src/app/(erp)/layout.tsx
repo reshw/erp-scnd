@@ -10,6 +10,7 @@ export default function ErpLayout({ children }: { children: React.ReactNode }) {
           <a href="/journals" className="hover:text-black">현금출납</a>
           <a href="/journals/batch" className="hover:text-black">일괄전표</a>
           <a href="/ledger" className="hover:text-black">계정원장</a>
+          <a href="/clearings" className="hover:text-black">미결잔액</a>
           <a href="/accounts" className="hover:text-black">계정과목</a>
           <a href="/counterparties" className="hover:text-black">거래처</a>
           <a href="/projects" className="hover:text-black">프로젝트</a>

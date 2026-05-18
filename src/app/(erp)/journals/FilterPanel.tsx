@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import DateRangePicker from '@/components/ui/DateRangePicker'
 
 interface Props {
   projects: string[]
@@ -92,17 +93,21 @@ export default function FilterPanel({ projects, accounts, counterparties }: Prop
   const [to, setTo] = useState(sp.get('to') ?? '')
   const [no, setNo] = useState(sp.get('no') ?? '')
 
-  function apply() {
+  function buildParams(f: string, t: string) {
     const params = new URLSearchParams()
     params.set('searched', '1')
     if (selProjects.size) params.set('projects', [...selProjects].join(','))
     if (selAccounts.size) params.set('account_ids', [...selAccounts].join(','))
     if (selCps.size)      params.set('cp_ids', [...selCps].join(','))
     if (note) params.set('note', note)
-    if (from) params.set('from', from)
-    if (to)   params.set('to', to)
-    if (no)   params.set('no', no)
-    startTransition(() => router.push(`/journals?${params.toString()}`))
+    if (f) params.set('from', f)
+    if (t) params.set('to', t)
+    if (no) params.set('no', no)
+    return params
+  }
+
+  function apply() {
+    startTransition(() => router.push(`/journals?${buildParams(from, to).toString()}`))
   }
 
   function reset() {
@@ -122,13 +127,15 @@ export default function FilterPanel({ projects, accounts, counterparties }: Prop
         </div>
         <div>
           <div className="text-xs font-semibold text-gray-600 mb-1">기간</div>
-          <div className="flex items-center gap-1">
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-              className="border rounded px-2 py-1.5 text-sm bg-white" />
-            <span className="text-gray-400 text-xs">~</span>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)}
-              className="border rounded px-2 py-1.5 text-sm bg-white" />
-          </div>
+          <DateRangePicker
+            from={from}
+            to={to}
+            onChange={(f, t) => { setFrom(f); setTo(t) }}
+            onMonthChange={(f, t) => {
+              setFrom(f); setTo(t)
+              startTransition(() => router.push(`/journals?${buildParams(f, t).toString()}`))
+            }}
+          />
         </div>
         <div>
           <div className="text-xs font-semibold text-gray-600 mb-1">적요 검색</div>
