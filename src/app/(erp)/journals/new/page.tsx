@@ -4,9 +4,13 @@ import JournalForm from '@/components/journal/JournalForm'
 export default async function NewJournalPage({
   searchParams,
 }: {
-  searchParams: Promise<{ copy?: string; loanId?: string; loanMonth?: string; repayment?: string; interest?: string }>
+  searchParams: Promise<{
+    copy?: string; loanId?: string; loanMonth?: string; repayment?: string; interest?: string
+    overdraftInterest?: string; date?: string; from?: string; to?: string
+    projectId?: string; label?: string
+  }>
 }) {
-  const { copy, loanId, loanMonth, repayment, interest } = await searchParams
+  const { copy, loanId, loanMonth, repayment, interest, overdraftInterest, date, from, to, projectId, label } = await searchParams
   const supabase = createAdminClient()
 
   const [{ data: accounts }, { data: projects }, { data: counterparties }] = await Promise.all([
@@ -128,14 +132,70 @@ export default async function NewJournalPage({
     }
   }
 
-  const preValues = loanValues ?? copyValues
+  // ── 마통 이자 전표 자동완성 ──────────────────────────
+  let overdraftValues: any = undefined
+  if (loanId && loanMonth && overdraftInterest && date) {
+    const interestAmt = Math.round(Number(overdraftInterest))
+
+    const { data: loan } = await (supabase as any)
+      .from('loans')
+      .select('name, project_id, account_id, counterparties(id, name)')
+      .eq('id', loanId)
+      .single() as any
+
+    const accInterest = accountList.find(a => a.name === '이자비용')
+    // 이자는 마통 잔액에 가산되므로 대변은 잔액 추적 계정 (예: 장기차입금)
+    const accTracking = accountList.find(a => a.id === loan?.account_id)
+
+    const note = `마통 이자 ${loanMonth}${label ? ` ${label}` : ''}${from && to ? ` (${from}~${to})` : ''}`
+    const lines = []
+
+    if (accInterest) {
+      lines.push({
+        account_id:        accInterest.id,
+        account_name:      accInterest.name,
+        classification:    accInterest.increase_label,
+        debit:             String(interestAmt),
+        credit:            '',
+        counterparty_id:   loan?.counterparties?.id ?? '',
+        counterparty_name: loan?.counterparties?.name ?? '',
+        note,
+      })
+    }
+
+    if (accTracking) {
+      lines.push({
+        account_id:        accTracking.id,
+        account_name:      accTracking.name,
+        classification:    accTracking.increase_label,
+        debit:             '',
+        credit:            String(interestAmt),
+        counterparty_id:   loan?.counterparties?.id ?? '',
+        counterparty_name: loan?.counterparties?.name ?? '',
+        note:              `${note} — 대출잔액 증가`,
+      })
+    }
+
+    if (lines.length > 0) {
+      overdraftValues = {
+        date,
+        project_id: projectId ?? loan?.project_id ?? '',
+        description: `${loan?.name ?? '마통'} 이자 ${loanMonth}${label ? ` — ${label}` : ''}`,
+        lines,
+      }
+    }
+  }
+
+  const preValues = overdraftValues ?? loanValues ?? copyValues
 
   return (
     <div className="max-w-4xl space-y-4">
       <h2 className="text-xl font-bold">
-        {loanValues ? `전표 발행 — 대출상환 ${loanMonth}` : copy && copyValues ? '전표 입력 (복사)' : '전표 입력'}
+        {overdraftValues ? `전표 발행 — 마통 이자 ${loanMonth}`
+          : loanValues ? `전표 발행 — 대출상환 ${loanMonth}`
+          : copy && copyValues ? '전표 입력 (복사)' : '전표 입력'}
       </h2>
-      {loanValues && (
+      {(loanValues || overdraftValues) && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 text-sm text-yellow-800">
           내용을 확인하고 수정한 뒤 저장하세요. 계정과목이나 금액이 다르면 직접 수정 가능합니다.
         </div>

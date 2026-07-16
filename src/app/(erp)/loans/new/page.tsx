@@ -48,6 +48,10 @@ export default async function NewLoanPage({
         account_name:        accList.find((a: any) => a.id === src.account_id)?.name ?? null,
         bank_account_id:     src.bank_account_id ?? null,
         bank_account_name:   ((bankAccounts ?? []) as any[]).find((b: any) => b.id === src.bank_account_id)?.name ?? null,
+        settlement_type:          src.settlement_type ?? 'date',
+        settlement_day:           src.settlement_day ?? null,
+        settlement_weekday:       src.settlement_weekday ?? null,
+        settlement_week_of_month: src.settlement_week_of_month ?? null,
       }
     }
   }

@@ -25,6 +25,17 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
 
   const isOverdraft = loan.loan_type === '마이너스통장'
 
+  // ── 마이너스통장: 금리 변동 이력 ─────────────────────────────────────
+  let rateHistory: any[] = []
+  if (isOverdraft) {
+    const { data } = await (supabase as any)
+      .from('loan_rate_history')
+      .select('id, effective_date, annual_rate, note')
+      .eq('loan_id', id)
+      .order('effective_date') as any
+    rateHistory = data ?? []
+  }
+
   // ── 마이너스통장: 전표 기반 인출/상환 내역 조회 ──────────────────────
   let overdraftLines: any[] = []
   if (isOverdraft && loan.account_id && loan.counterparty_id) {
@@ -113,6 +124,16 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
           annualRate={Number(loan.interest_rate)}
           includeDrawDay={loan.include_draw_day ?? true}
           lines={overdraftLines}
+          settlementType={loan.settlement_type ?? 'date'}
+          settlementDay={loan.settlement_day ?? null}
+          settlementWeekday={loan.settlement_weekday ?? null}
+          settlementWeekOfMonth={loan.settlement_week_of_month ?? null}
+          rateHistory={rateHistory.map((r: any) => ({
+            id: r.id,
+            effective_date: r.effective_date,
+            annual_rate: Number(r.annual_rate),
+            note: r.note ?? null,
+          }))}
         />
       ) : (
         <LoanScheduleTable

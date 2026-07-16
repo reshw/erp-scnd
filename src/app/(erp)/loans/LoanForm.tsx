@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import Combobox from '@/components/ui/Combobox'
+import { WEEKDAY_LABELS, WEEK_OF_MONTH_LABELS } from '@/lib/loans/overdraftSettlement'
 
 interface LoanInitialValues {
   id: string
@@ -26,6 +27,10 @@ interface LoanInitialValues {
   account_name: string | null
   bank_account_id: string | null
   bank_account_name: string | null
+  settlement_type: string
+  settlement_day: number | null
+  settlement_weekday: number | null
+  settlement_week_of_month: number | null
 }
 
 export default function LoanForm({
@@ -51,6 +56,13 @@ export default function LoanForm({
   const [loanType, setLoanType] = useState(initialValues?.loan_type ?? '원리금균등')
   const isOverdraft = loanType === '마이너스통장'
   const [includeDrawDay, setIncludeDrawDay] = useState(initialValues?.include_draw_day ?? true)
+  const [settlementType, setSettlementType] = useState(initialValues?.settlement_type ?? 'date')
+  const [settlementWeekday, setSettlementWeekday] = useState(
+    initialValues?.settlement_weekday ? String(initialValues.settlement_weekday) : '1'
+  )
+  const [settlementWeekOfMonth, setSettlementWeekOfMonth] = useState(
+    initialValues?.settlement_week_of_month ? String(initialValues.settlement_week_of_month) : '2'
+  )
 
   const [overdraftRaw, setOverdraftRaw] = useState(
     initialValues?.overdraft_limit ? String(initialValues.overdraft_limit) : ''
@@ -76,6 +88,7 @@ export default function LoanForm({
     const rateInput = parseFloat(fd.get('interest_rate') as string)
     const paymentDayRaw = fd.get('payment_day') as string
     const pmtFloor = fd.get('pmt_round_unit_enabled') === 'on'
+    const settlementDayRaw = fd.get('settlement_day') as string
     const body = {
       ...(isEdit ? { id: initialValues!.id } : {}),
       name:                fd.get('name'),
@@ -95,6 +108,10 @@ export default function LoanForm({
       include_draw_day:    isOverdraft ? includeDrawDay : true,
       account_id:          isOverdraft ? (fd.get('account_id') || null) : null,
       bank_account_id:     fd.get('bank_account_id') || null,
+      settlement_type:          isOverdraft ? settlementType : 'date',
+      settlement_day:           isOverdraft && settlementType === 'date' ? (settlementDayRaw ? parseInt(settlementDayRaw) : null) : null,
+      settlement_weekday:       isOverdraft && settlementType === 'weekday' ? parseInt(settlementWeekday) : null,
+      settlement_week_of_month: isOverdraft && settlementType === 'weekday' ? parseInt(settlementWeekOfMonth) : null,
     }
 
     const res = await fetch('/api/loans', {
@@ -203,6 +220,40 @@ export default function LoanForm({
                 당일 인출분 당일 이자 포함
                 <span className="ml-1.5 text-xs text-gray-400">(OFF 시 익일 기산)</span>
               </label>
+            </div>
+            <div className="border-t pt-3 space-y-2">
+              <label className="text-xs text-gray-500 block mb-1">정산 기산일</label>
+              <select value={settlementType} onChange={e => setSettlementType(e.target.value)}
+                className="border rounded px-3 py-2 text-sm w-full">
+                <option value="date">날짜기준 (예: 매월 15일)</option>
+                <option value="weekday">특정요일기준 (예: 매월 두번째 월요일)</option>
+              </select>
+
+              {settlementType === 'date' ? (
+                <input
+                  name="settlement_day"
+                  type="number"
+                  min="1" max="31"
+                  defaultValue={initialValues?.settlement_day ?? undefined}
+                  placeholder="비워두면 매월 1일~말일 전체 (기존 방식)"
+                  className="border rounded px-3 py-2 text-sm w-full"
+                />
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <select value={settlementWeekday} onChange={e => setSettlementWeekday(e.target.value)}
+                    className="border rounded px-3 py-2 text-sm w-full">
+                    {WEEKDAY_LABELS.map((label, i) => (
+                      <option key={i} value={i + 1}>{label}요일</option>
+                    ))}
+                  </select>
+                  <select value={settlementWeekOfMonth} onChange={e => setSettlementWeekOfMonth(e.target.value)}
+                    className="border rounded px-3 py-2 text-sm w-full">
+                    {WEEK_OF_MONTH_LABELS.map((label, i) => (
+                      <option key={i} value={i + 1}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </>
         ) : (

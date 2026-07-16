@@ -12,12 +12,21 @@ type Project = {
   code: string
   name: string
   description: string | null
+  entity_id: string | null
   is_active: boolean
 }
 
+type Entity = { id: string; name: string }
+
 const EMPTY = { code: '', name: '', description: '' }
 
-export default function ProjectsClient({ projects: initial }: { projects: Project[] }) {
+export default function ProjectsClient({
+  projects: initial,
+  entities,
+}: {
+  projects: Project[]
+  entities: Entity[]
+}) {
   const router = useRouter()
   const [list, setList] = useState(initial)
   const [open, setOpen] = useState(false)
@@ -25,6 +34,7 @@ export default function ProjectsClient({ projects: initial }: { projects: Projec
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [toggling, setToggling] = useState<string | null>(null)
+  const [matching, setMatching] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   function openNew() {
@@ -60,13 +70,27 @@ export default function ProjectsClient({ projects: initial }: { projects: Projec
       if (editing) {
         setList(prev => prev.map(p => p.id === editing.id ? { ...p, ...form } : p))
       } else {
-        setList(prev => [...prev, { id: json.id, ...form, is_active: true }].sort((a, b) => a.code.localeCompare(b.code)))
+        setList(prev => [...prev, { id: json.id, ...form, entity_id: null, is_active: true }].sort((a, b) => a.code.localeCompare(b.code)))
       }
       setOpen(false)
       router.refresh()
     } finally {
       setSaving(false)
     }
+  }
+
+  async function matchEntity(id: string, entity_id: string) {
+    setMatching(id)
+    const res = await fetch('/api/projects', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, entity_id }),
+    })
+    if (res.ok) {
+      setList(prev => prev.map(p => p.id === id ? { ...p, entity_id: entity_id || null } : p))
+      router.refresh()
+    }
+    setMatching(null)
   }
 
   async function toggleActive(id: string, current: boolean) {
@@ -115,6 +139,7 @@ export default function ProjectsClient({ projects: initial }: { projects: Projec
               <TableHead className="w-32">코드</TableHead>
               <TableHead>프로젝트명</TableHead>
               <TableHead>설명</TableHead>
+              <TableHead className="w-40">사업자</TableHead>
               <TableHead className="w-24 text-center">상태</TableHead>
               <TableHead className="w-24"></TableHead>
             </TableRow>
@@ -125,6 +150,19 @@ export default function ProjectsClient({ projects: initial }: { projects: Projec
                 <TableCell className="font-mono font-medium text-sm">{p.code}</TableCell>
                 <TableCell className="text-sm">{p.name}</TableCell>
                 <TableCell className="text-sm text-gray-500">{p.description ?? '-'}</TableCell>
+                <TableCell>
+                  <select
+                    className="w-full border rounded px-2 py-1 text-sm bg-white disabled:opacity-50"
+                    value={p.entity_id ?? ''}
+                    disabled={matching === p.id}
+                    onChange={e => matchEntity(p.id, e.target.value)}
+                  >
+                    <option value="">미매칭</option>
+                    {entities.map(en => (
+                      <option key={en.id} value={en.id}>{en.name}</option>
+                    ))}
+                  </select>
+                </TableCell>
                 <TableCell className="text-center">
                   <Button
                     size="sm"
@@ -146,7 +184,7 @@ export default function ProjectsClient({ projects: initial }: { projects: Projec
             ))}
             {list.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-gray-400 py-8">프로젝트 없음</TableCell>
+                <TableCell colSpan={6} className="text-center text-gray-400 py-8">프로젝트 없음</TableCell>
               </TableRow>
             )}
           </TableBody>

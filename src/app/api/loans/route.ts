@@ -34,6 +34,10 @@ export async function POST(req: NextRequest) {
       include_draw_day: body.include_draw_day ?? true,
       account_id:       body.account_id || null,
       bank_account_id:  body.bank_account_id || null,
+      settlement_type:          body.settlement_type ?? 'date',
+      settlement_day:           body.settlement_day ?? null,
+      settlement_weekday:       body.settlement_weekday ?? null,
+      settlement_week_of_month: body.settlement_week_of_month ?? null,
     })
     .select()
     .single() as any
@@ -65,6 +69,10 @@ export async function PUT(req: NextRequest) {
       include_draw_day:    body.include_draw_day ?? true,
       account_id:          body.account_id || null,
       bank_account_id:     body.bank_account_id || null,
+      settlement_type:          body.settlement_type ?? 'date',
+      settlement_day:           body.settlement_day ?? null,
+      settlement_weekday:       body.settlement_weekday ?? null,
+      settlement_week_of_month: body.settlement_week_of_month ?? null,
     })
     .eq('id', body.id) as any
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

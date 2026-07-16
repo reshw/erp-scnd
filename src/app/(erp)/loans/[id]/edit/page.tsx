@@ -50,6 +50,10 @@ export default async function LoanEditPage({ params }: { params: Promise<{ id: s
           account_name: ((accounts ?? []) as any[]).find((a: any) => a.id === loan.account_id)?.name ?? null,
           bank_account_id: loan.bank_account_id ?? null,
           bank_account_name: ((bankAccounts ?? []) as any[]).find((b: any) => b.id === loan.bank_account_id)?.name ?? null,
+          settlement_type: loan.settlement_type ?? 'date',
+          settlement_day: loan.settlement_day ?? null,
+          settlement_weekday: loan.settlement_weekday ?? null,
+          settlement_week_of_month: loan.settlement_week_of_month ?? null,
         }}
       />
     </div>

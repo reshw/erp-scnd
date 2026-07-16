@@ -27,6 +27,7 @@ export interface Database {
           code: string
           name: string
           description: string | null
+          entity_id: string | null
           is_active: boolean
           created_at: string
         }
@@ -38,6 +39,10 @@ export interface Database {
           id: string
           name: string
           type: 'corporate' | 'personal'
+          business_no: string | null
+          opened_at: string | null
+          biz_type: string | null
+          biz_item: string | null
           created_at: string
         }
         Insert: Omit<Database['public']['Tables']['entities']['Row'], 'id' | 'created_at'>
