@@ -233,10 +233,23 @@ export default async function MonthlyPage({
   //   total_credit → 수익 (임대료수입, 판매수입 등 — normal_side=credit 계정의 credit)
   //   total_debit, subtype != 금융비용 → 영업비용
   //   total_debit, subtype == 금융비용 → 이자비용 (영업외)
+  //
+  // activity_type='영업'엔 진짜 매출/비용 계정 말고도 잔액성(자산·부채) 계정이 섞여 있다
+  // (미수금 3종·미지급금(영업)·선급금·선수금·관리비예수금 — 현금흐름표 분류상 영업으로 묶였을 뿐
+  // 손익이 아니라 잔액 증감). monthly_cashflow 뷰가 activity_subtype 문자열까지만 집계해서
+  // 계정 단위로는 못 거르므로, 그 계정들의 subtype을 손익 집계에서 통째로 제외한다.
+  const PL_EXCLUDE_SUBTYPES = new Set([
+    '미수', '회수',              // 미수금(신용카드/무통장입금/PG)
+    '선급', '선급환입',          // 선급금
+    '입금', '환수',              // 선수금
+    '예수', '정산',              // 관리비예수금
+    '비용발생', '비용집행', '',  // 미지급금(영업) — 기존 데이터는 subtype이 빈 문자열로 기록돼 있음
+  ])
   type PLMonth = { revenue: number; opex: number; interest: number }
   const pl: Record<string, PLMonth> = {}
   for (const r of matrixRows) {
     if (r.activity_type !== '영업') continue
+    if (PL_EXCLUDE_SUBTYPES.has(r.activity_subtype)) continue
     const mk = r.month.slice(0, 7)
     if (!pl[mk]) pl[mk] = { revenue: 0, opex: 0, interest: 0 }
     pl[mk].revenue += Number(r.total_credit)
