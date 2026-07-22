@@ -63,7 +63,8 @@
       "Bash(Sort-Object FullName)",
       "PowerShell(Get-ChildItem D:\\\\dev\\\\erp\\\\supabase -Recurse -Force | ForEach-Object { $_.FullName })",
       "PowerShell(Get-ChildItem D:\\\\dev\\\\erp\\\\supabase\\\\snippets -Force | ForEach-Object { $_.FullName })",
-      "PowerShell(npx tsc --noEmit)"
+      "PowerShell(npx tsc --noEmit)",
+      "Bash(mkdir -p \"D:/dev/_shared/inbox/erp\" \"D:/dev/_shared/inbox/timetable\" \"D:/dev/_shared/inbox/_archive/erp\" \"D:/dev/_shared/inbox/_archive/timetable\" && ls -R \"D:/dev/_shared\")"
     ]
   }
 }

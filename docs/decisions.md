@@ -4,6 +4,29 @@
 
 ---
 
+## timetable 대관료 자동전표 수신 API
+
+**결정일:** 2026-07-22
+**구현 범위:** `POST /api/timetable/venue-fee` — 외부(timetable) 발신 전표발행 요청을 받아 미지급금 전표 자동 발행
+
+### 무엇을 만들었나
+
+- Bearer 토큰(`TIMETABLE_WEBHOOK_SECRET`) 인증, `src/proxy.ts`에서 이 경로만 Supabase 세션 체크 제외
+- 요청 바디(`period`, `rent_supply_amount`, `rent_vat_amount`, `rent_total_amount`, `counterparty_name`)를 받아 `지급임차료`(차변)/`부가세대급금`(차변)/`미지급금(영업)`(대변) 3라인 전표를 project `일반-LEISURE`로 발행
+- `venue_fee_postings` 테이블(`period` UNIQUE)로 재전송 시 중복 전표 생성 방지 (멱등)
+
+### 왜 이렇게 했나
+
+- **거래처 마스터에 미리 등록하지 않고 자유텍스트(`counterparty_name`)로만 받음**: timetable이 이미 대관료 계산·증빙을 자체 완결해뒀으므로, ERP가 원본 결제 데이터를 다시 파싱해 대관료를 재도출할 필요가 없다는 판단(대관료 스레드를 PG 결제 연동 스레드에서 분리하기로 한 결정과 같은 맥락). 실제 거래처 기준 미결잔액 추적이 필요해지면 그때 거래처 마스터 연결 추가
+- **journal_no 채번에 재시도 루프(최대 5회) 추가**: 이 경로는 사람이 지켜보지 않는 무인 웹훅이라 `(journal_no, date)` 유니크 충돌 시 사용자가 즉시 재시도할 수 없음 — 다른 API들과 달리 자체 재시도가 필요하다고 판단
+- **정산/지급 전표는 범위에서 제외**: 이 API는 발생 인식(미지급금 계상)까지만 처리. 실제 통장 이체 시점 전표는 기존 방식대로 수동 처리
+
+### 확인 대기 중
+
+timetable에 회신 요청(`D:\dev\_shared\inbox\timetable\from-erp__260722-venue-fee-api.md`): 매월 값 확정 시점, `period`가 발생월 기준인지, 정정 재전송 케이스 존재 여부. 답변에 따라 재전송 시 덮어쓰기/취소재발행 로직 추가 검토
+
+---
+
 ## 마이너스통장 정산 기산일 (날짜기준 / 특정요일기준)
 
 **결정일:** 2026-07-06
