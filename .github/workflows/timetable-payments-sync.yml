@@ -1,0 +1,25 @@
+name: Sync timetable payments
+
+# timetable(나디아요가) 결제원장을 당겨 매출전표를 발행한다.
+# Vercel Hobby 크론은 실행 신뢰도가 낮다는 게 keepalive에서 실증돼서 GitHub Actions로 돌린다.
+
+on:
+  schedule:
+    - cron: '30 20 * * *'   # 매일 UTC 20:30 (KST 익일 05:30 — 전날 영업분이 다 들어온 뒤)
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull payments and post journals
+        run: |
+          response=$(curl -s -w '\n%{http_code}' -X POST https://erp.scnd.kr/api/timetable/payments/sync \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          body=$(echo "$response" | sed '$d')
+          code=$(echo "$response" | tail -n1)
+          echo "$body"
+          if [ "$code" != "200" ]; then
+            echo "::error::동기화 실패 (HTTP $code)"
+            exit 1
+          fi
