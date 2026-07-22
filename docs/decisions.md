@@ -4,6 +4,33 @@
 
 ---
 
+## timetable PG 연동 되물음 회신 + 챗 어시스턴트 이식 거절
+
+**결정일:** 2026-07-22
+**성격:** timetable과의 협의 회신 (구현 아님, 방향 결정)
+
+### PG 결제 연동 — ERP 측 답변 확정
+
+timetable 되물음 4개에 회신 (`_archive/timetable/... → inbox/timetable/from-erp__260722-pg-schema.md`):
+
+1. **append는 연동 원장에만 적용해도 회계 요건 충족.** 단 취소/환불은 원본 행 in-place update가 아니라 **반대 이벤트 행을 append** 해야 함 (ERP가 발행한 전표와 취소전표 대사를 위해). timetable 앱 내부 테이블(잔여횟수·상태 로직)은 안 건드려도 됨.
+2. **부분 배분 수용 — 배분(allocation) 단위 행으로 수신.** 결제 1건이 N개 매출로 쪼개지면 N행. 단 같은 원결제임을 알 그룹키(`payment_group_id`/`provider_txid`)를 각 행에 실어달라 (배분합 검증 + 정산 매칭용).
+3. **인증=고정 Bearer(venue-fee와 동일), 페이지네이션=`updated_at` 커서(`?since=&limit=`, 응답 `next_cursor`), 시각=UTC ISO8601.** KST 변환은 ERP 담당.
+4. **테스트 데이터는 `is_test` 플래그만, 조회 측(ERP)에서 `is_test=false` 필터.**
+5. **프로젝트 귀속 = `일반-LEISURE` 단일** (나디아요가 한 곳뿐, 연동 원장에 귀속 필드 불필요).
+
+**ERP 착수 조건:** timetable이 (1)실시간 반영 (2)append 취소 (3)읽기전용 API 셋을 완료하면 그때 ERP가 커서 동기화 코드 작성. 그 전엔 착수 안 함. 정산(입금) 데이터는 후속 단계.
+
+### 챗 어시스턴트 이식 — 거절
+
+timetable이 관리자 챗 어시스턴트(Anthropic 기반) 이식을 제안했으나 **도입하지 않기로 함** (`inbox/timetable/from-erp__260722-assist-chat.md`).
+
+**왜:** ERP엔 이미 동일 목적·동일 안전패턴 어시스턴트가 있음 — `/assistant` + `POST /api/ai-journal` (`preview_journal` 제안 → 사람 확인 → `create_journal` 서버검증 실행, Gemini `gemini-flash-latest`). timetable이 강조한 원칙(LLM 직접 쓰기 금지/제안→사람확인/서버 재검증)을 이미 만족. 대행 범위도 전표 발행 한 도메인으로 의도적으로 좁혀둔 상태라 대사·정산까지 확장할 필요성 낮음.
+
+**보류로 메모한 것(향후 값어치):** ① 기존 전표 **수정/대사**를 챗에 넣게 되면 execute 라우트가 대상 행을 서버 재조회하는 방식 필요. ② 조회 결과 텍스트의 인젝션 방어 문구를 ERP 시스템 프롬프트에도 반영 검토.
+
+---
+
 ## timetable 대관료 자동전표 수신 API
 
 **결정일:** 2026-07-22
