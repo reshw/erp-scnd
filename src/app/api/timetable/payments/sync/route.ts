@@ -34,7 +34,7 @@ const MAX_PAGES = 50
 const CURSOR_OVERLAP_MS = 60 * 60 * 1000
 
 const SYNC_KEY = 'timetable_payments'
-const PROJECT_CODE = '일반-LEISURE'
+const PROJECT_CODE = 'NADIA'
 
 type PaymentRow = {
   external_id: string | null

@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     (supabase as any)
       .from('projects')
       .select('id')
-      .eq('code', '일반-LEISURE')
+      .eq('code', 'NADIA')
       .single(),
   ])
 

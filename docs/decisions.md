@@ -46,6 +46,14 @@ fetch를 대체하고 라우트를 직접 실행. 실데이터 22행 → 전표 
 **남은 의존:** timetable이 `app/api/erp/` 배포 + Vercel env `ERP_PAYMENTS_PULL_TOKEN` 등록.
 그 전까지 배치는 502로 실패함.
 
+**정정(2026-07-22, 같은 날):** 프로젝트 귀속을 `일반-LEISURE`로 잘못 넣었음. 정확한 코드는
+`NADIA`(나디아 요가 퍼블릭) — `일반-LEISURE`는 별개 프로젝트(코드만 보고 혼동, 실제 프로젝트
+테이블엔 둘 다 존재). 이미 발행된 전표 #323~339는 `project_id`만 UPDATE로 정정(전표번호·
+라인·금액은 그대로). `sync/route.ts`의 `PROJECT_CODE`와 `venue-fee/route.ts`의 프로젝트
+조회 조건을 `NADIA`로 코드 수정. venue-fee는 아직 실제 전표가 없어(timetable 미착수)
+데이터 정정은 불필요했음. timetable에는 재통보 불필요 — timetable 쪽 스키마엔 프로젝트
+필드가 없어 이 매핑은 순전히 ERP 내부 문제.
+
 ---
 
 ## timetable PG 연동 되물음 회신 + 챗 어시스턴트 이식 거절
