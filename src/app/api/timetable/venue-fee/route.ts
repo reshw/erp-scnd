@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
  * POST /api/timetable/venue-fee
  *
  * timetable(나디아요가)이 매월 초 대관료(60%) 산정 결과를 보내면 미지급금 전표를 자동 발행한다.
- * 인증: Authorization: Bearer <TIMETABLE_WEBHOOK_SECRET> (Supabase 세션 아님 — proxy.ts에서 경로 제외됨)
+ * 인증: Authorization: Bearer <TIMETABLE_ERP_WEBHOOK_SECRET> (Supabase 세션 아님 — proxy.ts에서 경로 제외됨)
  *
  * body:
  * {
@@ -22,7 +22,7 @@ import { NextRequest, NextResponse } from 'next/server'
  * period가 이미 접수된 경우 재전송해도 새 전표를 만들지 않고 기존 전표 정보를 그대로 반환한다(멱등).
  */
 export async function POST(req: NextRequest) {
-  if (req.headers.get('authorization') !== `Bearer ${process.env.TIMETABLE_WEBHOOK_SECRET}`) {
+  if (req.headers.get('authorization') !== `Bearer ${process.env.TIMETABLE_ERP_WEBHOOK_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

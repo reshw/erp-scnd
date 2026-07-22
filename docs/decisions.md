@@ -11,7 +11,7 @@
 
 ### 무엇을 만들었나
 
-- Bearer 토큰(`TIMETABLE_WEBHOOK_SECRET`) 인증, `src/proxy.ts`에서 이 경로만 Supabase 세션 체크 제외
+- Bearer 토큰(`TIMETABLE_ERP_WEBHOOK_SECRET`) 인증, `src/proxy.ts`에서 이 경로만 Supabase 세션 체크 제외
 - 요청 바디(`period`, `rent_supply_amount`, `rent_vat_amount`, `rent_total_amount`, `counterparty_name`)를 받아 `지급임차료`(차변)/`부가세대급금`(차변)/`미지급금(영업)`(대변) 3라인 전표를 project `일반-LEISURE`로 발행
 - `venue_fee_postings` 테이블(`period` UNIQUE)로 재전송 시 중복 전표 생성 방지 (멱등)
 
