@@ -195,6 +195,16 @@ export default async function MonthlyPage({
 
   const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`)
 
+  // 손익 추이 드릴다운 링크 — 현재 선택된 프로젝트 필터를 그대로 물려준다
+  function plLink(mk: string | null, type: string, subtype?: string) {
+    const p = new URLSearchParams({ year })
+    if (mk) p.set('month', String(parseInt(mk.slice(5))))
+    p.set('type', type)
+    if (subtype) p.set('subtype', subtype)
+    if (selectedCodes.length > 0) p.set('projects', selectedCodes.join(','))
+    return `/journals?${p.toString()}`
+  }
+
   // ── 활동구분 집계 ──────────────────────────────────────────────────────────
   const agg: Record<string, Record<string, { debit: number; credit: number }>> = {}
   // activity_type → subtype → month → {debit, credit} (NonOpRows 아코디언용)
@@ -410,12 +420,12 @@ export default async function MonthlyPage({
                   const v = plGet(mk).revenue
                   return (
                     <td key={mk} className={`text-right px-3 py-2 tabular-nums font-medium ${mk === currentMonth ? 'bg-blue-50/50' : ''} ${v > 0 ? 'text-green-700' : 'text-gray-300'}`}>
-                      {fmt(v)}
+                      {v > 0 ? <a href={plLink(mk, '영업', '매출')} className="hover:underline">{fmt(v)}</a> : fmt(v)}
                     </td>
                   )
                 })}
                 <td className={`text-right px-3 py-2 tabular-nums font-bold bg-gray-50 ${annualRevenue > 0 ? 'text-green-700' : 'text-gray-400'}`}>
-                  {fmtPL(annualRevenue)}
+                  {annualRevenue > 0 ? <a href={plLink(null, '영업', '매출')} className="hover:underline">{fmtPL(annualRevenue)}</a> : fmtPL(annualRevenue)}
                 </td>
               </tr>
 
@@ -426,12 +436,12 @@ export default async function MonthlyPage({
                   const v = plGet(mk).opex
                   return (
                     <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-50/50' : ''} ${v > 0 ? 'text-gray-700' : 'text-gray-300'}`}>
-                      {v > 0 ? `(${fmt(v)})` : '-'}
+                      {v > 0 ? <a href={plLink(mk, '영업')} className="hover:underline">({fmt(v)})</a> : '-'}
                     </td>
                   )
                 })}
                 <td className={`text-right px-3 py-2 tabular-nums bg-gray-50 ${annualOpex > 0 ? 'text-gray-700' : 'text-gray-400'}`}>
-                  {annualOpex > 0 ? `(${fmtPL(annualOpex)})` : '-'}
+                  {annualOpex > 0 ? <a href={plLink(null, '영업')} className="hover:underline">({fmtPL(annualOpex)})</a> : '-'}
                 </td>
               </tr>
 
@@ -443,12 +453,12 @@ export default async function MonthlyPage({
                   const hasData = plGet(mk).revenue > 0 || plGet(mk).opex > 0
                   return (
                     <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-100/50' : ''} ${!hasData ? 'text-gray-300' : v < 0 ? 'text-red-600' : 'text-green-700'}`}>
-                      {hasData ? fmtPL(v) : '-'}
+                      {hasData ? <a href={plLink(mk, '영업')} className="hover:underline">{fmtPL(v)}</a> : '-'}
                     </td>
                   )
                 })}
                 <td className={`text-right px-3 py-2 tabular-nums bg-gray-100 ${annualOpProfit < 0 ? 'text-red-600' : 'text-green-700'}`}>
-                  {fmtPL(annualOpProfit)}
+                  <a href={plLink(null, '영업')} className="hover:underline">{fmtPL(annualOpProfit)}</a>
                 </td>
               </tr>
 
@@ -458,18 +468,17 @@ export default async function MonthlyPage({
                   <td className="px-3 py-2 text-sm text-orange-600">이자비용(영업외)</td>
                   {months.map(mk => {
                     const v = plGet(mk).interest
-                    const href = `/journals?year=${year}&month=${parseInt(mk.slice(5))}&subtype=금융비용`
                     return (
                       <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-50/50' : ''} ${v > 0 ? 'text-orange-600' : 'text-gray-300'}`}>
                         {v > 0 ? (
-                          <a href={href} className="hover:underline">({fmt(v)})</a>
+                          <a href={plLink(mk, '영업', '금융비용')} className="hover:underline">({fmt(v)})</a>
                         ) : '-'}
                       </td>
                     )
                   })}
                   <td className={`text-right px-3 py-2 tabular-nums bg-gray-50 ${annualInterest > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
                     {annualInterest > 0 ? (
-                      <a href={`/journals?year=${year}&subtype=금융비용`} className="hover:underline">
+                      <a href={plLink(null, '영업', '금융비용')} className="hover:underline">
                         ({fmtPL(annualInterest)})
                       </a>
                     ) : '-'}
@@ -485,12 +494,12 @@ export default async function MonthlyPage({
                   const hasData = plGet(mk).revenue > 0 || plGet(mk).opex > 0 || plGet(mk).interest > 0
                   return (
                     <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-200/50' : ''} ${!hasData ? 'text-gray-300' : v < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      {hasData ? fmtPL(v) : '-'}
+                      {hasData ? <a href={plLink(mk, '영업')} className="hover:underline">{fmtPL(v)}</a> : '-'}
                     </td>
                   )
                 })}
                 <td className={`text-right px-3 py-2 tabular-nums bg-gray-200 ${annualNetProfit < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                  {fmtPL(annualNetProfit)}
+                  <a href={plLink(null, '영업')} className="hover:underline">{fmtPL(annualNetProfit)}</a>
                 </td>
               </tr>
 
@@ -508,6 +517,7 @@ export default async function MonthlyPage({
                 year={year}
                 agg={agg}
                 typeSubAgg={typeSubAgg}
+                projectCodes={selectedCodes}
               />
 
               {/* 최종 현금 순변동 */}

@@ -19,13 +19,15 @@ interface Props {
   year: string
   agg: Agg
   typeSubAgg: TypeSubAgg
+  projectCodes?: string[]
 }
 
-function journalLink(year: string, mk: string | null, type: string, subtype?: string) {
+function journalLink(year: string, mk: string | null, type: string, subtype?: string, projectCodes?: string[]) {
   const p = new URLSearchParams({ year })
   if (mk) p.set('month', String(parseInt(mk.slice(5))))
   p.set('type', type)
   if (subtype) p.set('subtype', subtype)
+  if (projectCodes && projectCodes.length > 0) p.set('projects', projectCodes.join(','))
   return `/journals?${p.toString()}`
 }
 
@@ -47,7 +49,7 @@ const ROW_CONFIG: { type: string; label: string; expandable: boolean }[] = [
   { type: '투자', label: '투자 (회수 – 집행)', expandable: false },
 ]
 
-export default function NonOpRows({ months, currentMonth, year, agg, typeSubAgg }: Props) {
+export default function NonOpRows({ months, currentMonth, year, agg, typeSubAgg, projectCodes }: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   const toggle = (type: string) =>
@@ -80,7 +82,7 @@ export default function NonOpRows({ months, currentMonth, year, agg, typeSubAgg 
                 return (
                   <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-50/50' : ''} ${v < 0 ? 'text-red-500' : v > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
                     {v !== 0 ? (
-                      <Link href={journalLink(year, mk, type)} className="hover:underline">
+                      <Link href={journalLink(year, mk, type, undefined, projectCodes)} className="hover:underline">
                         {fmtPL(v)}
                       </Link>
                     ) : '-'}
@@ -89,7 +91,7 @@ export default function NonOpRows({ months, currentMonth, year, agg, typeSubAgg 
               })}
               <td className={`text-right px-3 py-2 tabular-nums bg-gray-50 ${annualV < 0 ? 'text-red-500' : annualV > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
                 {annualV !== 0 ? (
-                  <Link href={journalLink(year, null, type)} className="hover:underline">
+                  <Link href={journalLink(year, null, type, undefined, projectCodes)} className="hover:underline">
                     {fmtPL(annualV)}
                   </Link>
                 ) : '-'}
@@ -110,7 +112,7 @@ export default function NonOpRows({ months, currentMonth, year, agg, typeSubAgg 
                     return (
                       <td key={mk} className={`text-right px-3 py-2 tabular-nums text-sm ${mk === currentMonth ? 'bg-blue-50/30' : ''} ${v < 0 ? 'text-red-400' : v > 0 ? 'text-blue-500' : 'text-gray-200'}`}>
                         {v !== 0 ? (
-                          <Link href={journalLink(year, mk, type, subtype)} className="hover:underline">
+                          <Link href={journalLink(year, mk, type, subtype, projectCodes)} className="hover:underline">
                             {fmtPL(v)}
                           </Link>
                         ) : '-'}
@@ -119,7 +121,7 @@ export default function NonOpRows({ months, currentMonth, year, agg, typeSubAgg 
                   })}
                   <td className={`text-right px-3 py-2 tabular-nums text-sm bg-gray-50 ${subAnnual < 0 ? 'text-red-400' : subAnnual > 0 ? 'text-blue-500' : 'text-gray-300'}`}>
                     {subAnnual !== 0 ? (
-                      <Link href={journalLink(year, null, type, subtype)} className="hover:underline">
+                      <Link href={journalLink(year, null, type, subtype, projectCodes)} className="hover:underline">
                         {fmtPL(subAnnual)}
                       </Link>
                     ) : '-'}
