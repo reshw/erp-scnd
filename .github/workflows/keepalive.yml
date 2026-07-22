@@ -1,0 +1,15 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 매일 UTC 09:00 (KST 18:00)
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping ERP keepalive endpoint
+        run: |
+          curl -sf -X GET https://erp.scnd.kr/api/keepalive \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

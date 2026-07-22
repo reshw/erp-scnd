@@ -2,11 +2,5 @@
   "framework": "nextjs",
   "buildCommand": "next build",
   "devCommand": "next dev",
-  "installCommand": "npm install",
-  "crons": [
-    {
-      "path": "/api/keepalive",
-      "schedule": "0 9 */3 * *"
-    }
-  ]
+  "installCommand": "npm install"
 }
