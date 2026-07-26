@@ -61,6 +61,13 @@ function SearchSelect({
   )
 }
 
+// 거래처별 미결잔액을 챙겨봐야 하는 잔액성 계정 프리셋 — 선택 즉시 조회까지 실행한다.
+const PRESET_ACCOUNT_NAMES = [
+  '미수금(신용카드)', '미수금(무통장입금)', '미수금(PG)',
+  '선급금', '선급금(투자)', '선수금',
+  '미지급금(영업)', '관리비예수금',
+]
+
 export default function ClearingsFilter({ accounts }: { accounts: { id: string; name: string }[] }) {
   const router = useRouter()
   const sp = useSearchParams()
@@ -71,9 +78,13 @@ export default function ClearingsFilter({ accounts }: { accounts: { id: string; 
   const [to,        setTo]        = useState(sp.get('to') ?? '')
   const [openOnly,  setOpenOnly]  = useState(sp.get('open_only') === '1')
 
-  function buildParams(f: string, t: string) {
+  const presets = PRESET_ACCOUNT_NAMES
+    .map(name => accounts.find(a => a.name === name))
+    .filter((a): a is { id: string; name: string } => !!a)
+
+  function buildParams(f: string, t: string, id: string = accountId) {
     const params = new URLSearchParams()
-    params.set('account_id', accountId)
+    params.set('account_id', id)
     if (f) params.set('from', f)
     if (t) params.set('to', t)
     if (openOnly) params.set('open_only', '1')
@@ -85,8 +96,30 @@ export default function ClearingsFilter({ accounts }: { accounts: { id: string; 
     startTransition(() => router.push(`/clearings?${buildParams(from, to).toString()}`))
   }
 
+  function applyPreset(id: string) {
+    setAccountId(id)
+    startTransition(() => router.push(`/clearings?${buildParams(from, to, id).toString()}`))
+  }
+
   return (
     <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
+      {presets.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {presets.map(p => (
+            <button
+              key={p.id}
+              onClick={() => applyPreset(p.id)}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                p.id === accountId
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+              }`}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
         <div>
           <div className="text-xs font-semibold text-gray-600 mb-1">계정과목 *</div>
