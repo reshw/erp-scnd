@@ -64,7 +64,9 @@
       "PowerShell(Get-ChildItem D:\\\\dev\\\\erp\\\\supabase -Recurse -Force | ForEach-Object { $_.FullName })",
       "PowerShell(Get-ChildItem D:\\\\dev\\\\erp\\\\supabase\\\\snippets -Force | ForEach-Object { $_.FullName })",
       "PowerShell(npx tsc --noEmit)",
-      "Bash(mkdir -p \"D:/dev/_shared/inbox/erp\" \"D:/dev/_shared/inbox/timetable\" \"D:/dev/_shared/inbox/_archive/erp\" \"D:/dev/_shared/inbox/_archive/timetable\" && ls -R \"D:/dev/_shared\")"
+      "Bash(mkdir -p \"D:/dev/_shared/inbox/erp\" \"D:/dev/_shared/inbox/timetable\" \"D:/dev/_shared/inbox/_archive/erp\" \"D:/dev/_shared/inbox/_archive/timetable\" && ls -R \"D:/dev/_shared\")",
+      "Bash(find \"/c/Users/seoka/Downloads\" -iname \"*마음디자인*\" -o -iname \"*서명*\" 2>/dev/null)",
+      "Bash(unzip -l \"마음디자인랩 메일서명.zip\")"
     ]
   }
 }

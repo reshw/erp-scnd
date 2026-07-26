@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   const { data: accounts } = await (supabase as any)
     .from('accounts')
     .select('id, name, activity_type, normal_side, increase_label, decrease_label')
-    .in('name', ['이자비용', '보통예금', '장기차입금']) as any
+    .in('name', ['이자비용', '보통예금', '장기차입금', '미지급금(영업)']) as any
 
   const accById = Object.fromEntries((accounts ?? []).map((a: any) => [a.id, a]))
   const accByName = Object.fromEntries((accounts ?? []).map((a: any) => [a.name, a]))
@@ -119,17 +119,16 @@ export async function POST(req: NextRequest) {
     } else {
       const { data: plan } = await (supabase as any)
         .from('spending_plans')
-        .select('account_id, project_id, accounts(id, name, activity_type, normal_side, increase_label, decrease_label), counterparties(id, name), bank_accounts(name)')
+        .select('account_id, project_id, accounts(id, name, activity_type, normal_side, increase_label, decrease_label), counterparties(id, name)')
         .eq('id', ex.source_id).single() as any
 
       if (plan?.account_id) {
         planProjectId = plan.project_id ?? null
         counterpartyId = plan.counterparties?.id ?? null
         counterpartyName = plan.counterparties?.name ?? null
-        bankAccountName = plan.bank_accounts?.name ?? null
 
         const planAcc = plan.accounts
-        const bankAccId = accId('보통예금')
+        const apAccId = accId('미지급금(영업)')
 
         // plan 계정의 classification 계산 (debit 기준)
         const planClassification = planAcc
@@ -139,6 +138,8 @@ export async function POST(req: NextRequest) {
         // accById에 plan 계정 추가 (classification 함수용)
         if (planAcc) accById[planAcc.id] = planAcc
 
+        // 집행 시 바로 확정비용/보통예금으로 잡지 않고 미지급금(영업)으로 먼저 발행한다.
+        // 실제 이체 확인은 /clearings 반제 처리에서 별도로 한다.
         lines = [
           {
             account_id: plan.account_id,
@@ -152,13 +153,13 @@ export async function POST(req: NextRequest) {
             date: ex.planned_date,
           },
           {
-            account_id: bankAccId,
+            account_id: apAccId,
             debit: 0, credit: ex.amount,
-            activity_type: accByName['보통예금']?.activity_type ?? '현금',
-            activity_subtype: '출금',
-            classification: classification(bankAccId, 'credit'),
-            counterparty_id: null,
-            counterparty_name: bankAccountName,
+            activity_type: accByName['미지급금(영업)']?.activity_type ?? '영업',
+            activity_subtype: classification(apAccId, 'credit').split(' - ')[1] ?? '',
+            classification: classification(apAccId, 'credit'),
+            counterparty_id: counterpartyId,
+            counterparty_name: counterpartyName,
             note: ex.description,
             date: ex.planned_date,
           },

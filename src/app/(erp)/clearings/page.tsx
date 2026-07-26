@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import Link from 'next/link'
 import ClearingsFilter from './ClearingsFilter'
+import ClearingsSettleButton from './ClearingsSettleButton'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
@@ -150,7 +151,7 @@ export default async function ClearingsPage({
                   <th className="text-right px-3 py-3 w-20">반제건</th>
                   <th className="text-right px-3 py-3 w-32">반제액</th>
                   <th className="text-right px-3 py-3 w-36 font-semibold">미결잔액</th>
-                  <th className="px-3 py-3 w-12"></th>
+                  <th className="px-3 py-3 w-40"></th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -166,8 +167,18 @@ export default async function ClearingsPage({
                       <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${isOpen ? 'text-red-600' : 'text-gray-400'}`}>
                         {isOpen ? fmt(Math.abs(r.balance)) : '완결'}
                       </td>
-                      <td className="px-3 py-2.5 text-center">
-                        <Link href={ledgerUrl(r)} className="text-xs text-blue-500 hover:underline">원장</Link>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-2 justify-end">
+                          <Link href={ledgerUrl(r)} className="text-xs text-blue-500 hover:underline">원장</Link>
+                          {isOpen && (
+                            <ClearingsSettleButton
+                              accountId={params.account_id!}
+                              cpId={r.cp_id}
+                              cpName={r.cp_name === '(거래처 없음)' ? '' : r.cp_name}
+                              balance={Math.abs(r.balance)}
+                            />
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )

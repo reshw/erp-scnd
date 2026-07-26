@@ -32,6 +32,7 @@ export type JournalLineInput = {
   side: 'debit' | 'credit'
   amount: number
   note?: string
+  counterparty_id?: string | null
   counterparty_name?: string | null
 }
 
@@ -74,6 +75,7 @@ export async function insertJournalWithLines(
     account_id: l.account.id,
     debit: l.side === 'debit' ? l.amount : 0,
     credit: l.side === 'credit' ? l.amount : 0,
+    counterparty_id: l.counterparty_id ?? null,
     counterparty_name: l.counterparty_name ?? null,
     note: l.note ?? params.description,
     ...lineClassification(l.account, l.side),
