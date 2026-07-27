@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   const { data: posting } = await db
     .from('timetable_payment_postings')
-    .select('external_id, journal_id, settlement_journal_id, payload, journals!timetable_payment_postings_journal_id_fkey(journal_no)')
+    .select('external_id, journal_id, settlement_journal_id, payload, journals!timetable_payment_postings_journal_id_fkey(journal_no, project_id)')
     .eq('external_id', external_id)
     .single()
 
@@ -75,7 +75,12 @@ export async function POST(req: NextRequest) {
   ]
 
   try {
-    const journal = await insertJournalWithLines(supabase, { date, description, lines })
+    const journal = await insertJournalWithLines(supabase, {
+      date,
+      description,
+      project_id: posting.journals?.project_id ?? null,
+      lines,
+    })
 
     const { error: ue } = await db
       .from('timetable_payment_postings')
