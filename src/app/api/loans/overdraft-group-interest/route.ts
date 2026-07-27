@@ -27,13 +27,13 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/loans/overdraft-group-interest
- * body: { loanId, from, to, actualTotal, month }
+ * body: { loanId, from, to, date, actualTotal, month } — date는 부과일(전표 날짜)
  * 그룹 전체(정액 N개 + 잔여 1개)에 대해 이자비용 전표를 각각 발행한다.
  */
 export async function POST(req: NextRequest) {
-  const { loanId, from, to, actualTotal, month } = await req.json()
-  if (!loanId || !from || !to || !month) {
-    return NextResponse.json({ error: 'loanId, from, to, month 필수' }, { status: 400 })
+  const { loanId, from, to, date, actualTotal, month } = await req.json()
+  if (!loanId || !from || !to || !date || !month) {
+    return NextResponse.json({ error: 'loanId, from, to, date, month 필수' }, { status: 400 })
   }
   if (!Number.isFinite(actualTotal)) return NextResponse.json({ error: 'actualTotal이 숫자가 아닙니다' }, { status: 400 })
 
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
   for (const entry of calc.breakdown) {
     if (entry.interest === 0) continue
     const result = await postOverdraftInterestJournal(supabase, {
-      loanId: entry.loan_id, from, to, interest: entry.interest, month,
+      loanId: entry.loan_id, from, to, date, interest: entry.interest, month,
     })
     if ('error' in result) {
       return NextResponse.json({ error: `${entry.loan_name}: ${result.error}`, posted }, { status: 500 })

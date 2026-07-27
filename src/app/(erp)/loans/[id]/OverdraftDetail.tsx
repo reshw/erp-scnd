@@ -131,11 +131,11 @@ export default function OverdraftDetail({
   async function handleGroupPost() {
     if (!groupResult) return
     setGroupPosting(true); setGroupError('')
-    const { from, to } = periodOf(groupMonth)
+    const { from, to, chargeDate } = periodOf(groupMonth)
     const res = await fetch('/api/loans/overdraft-group-interest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ loanId, from, to, actualTotal: Number(actualTotal), month: groupMonth }),
+      body: JSON.stringify({ loanId, from, to, date: chargeDate, actualTotal: Number(actualTotal), month: groupMonth }),
     })
     const data = await res.json()
     setGroupPosting(false)

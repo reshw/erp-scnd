@@ -21,15 +21,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 /**
  * POST /api/loans/[id]/overdraft-interest
- * body: { from, to, interest, month }
+ * body: { from, to, date, interest, month } — date는 부과일(전표 날짜), to와 다를 수 있음
  * 이자비용 전표 발행
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = createAdminClient()
-  const { from, to, interest, month } = await req.json()
+  const { from, to, date, interest, month } = await req.json()
+  if (!date) return NextResponse.json({ error: 'date(부과일)가 필요합니다' }, { status: 400 })
 
-  const result = await postOverdraftInterestJournal(supabase, { loanId: id, from, to, interest, month })
+  const result = await postOverdraftInterestJournal(supabase, { loanId: id, from, to, date, interest, month })
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: 500 })
   return NextResponse.json({ ok: true, journalId: result.journalId })
 }

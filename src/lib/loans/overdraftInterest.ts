@@ -158,10 +158,10 @@ export async function calcOverdraftInterest(
  */
 export async function postOverdraftInterestJournal(
   supabase: SupabaseClient<any>,
-  params: { loanId: string; from: string; to: string; interest: number; month: string }
+  params: { loanId: string; from: string; to: string; date: string; interest: number; month: string }
 ): Promise<{ journalId: string } | { error: string }> {
   const db = supabase as any
-  const { loanId, from, to, interest, month } = params
+  const { loanId, from, to, date, interest, month } = params
 
   const { data: loan } = await db.from('loans').select('project_id, counterparty_id').eq('id', loanId).single()
 
@@ -178,7 +178,7 @@ export async function postOverdraftInterestJournal(
 
   const { data: journal, error: je } = await db
     .from('journals')
-    .insert({ journal_no: nextNo, date: to, project_id: loan?.project_id ?? null, description: `마통 이자비용 ${month}` })
+    .insert({ journal_no: nextNo, date, project_id: loan?.project_id ?? null, description: `마통 이자비용 ${month}` })
     .select('id')
     .single()
   if (je) return { error: je.message }
@@ -186,14 +186,14 @@ export async function postOverdraftInterestJournal(
   const note = `마통 이자 ${month} (${from}~${to})`
   const { error: le } = await db.from('journal_lines').insert([
     {
-      journal_id: journal.id, date: to, account_id: interestAcc.id,
+      journal_id: journal.id, date, account_id: interestAcc.id,
       classification: interestAcc.increase_label,
       activity_type: interestAcc.increase_label.split(' - ')[0],
       activity_subtype: interestAcc.increase_label.split(' - ')[1] ?? '',
       debit: interest, credit: 0, counterparty_id: loan?.counterparty_id ?? null, note,
     },
     {
-      journal_id: journal.id, date: to, account_id: bankAcc.id,
+      journal_id: journal.id, date, account_id: bankAcc.id,
       classification: bankAcc.decrease_label,
       activity_type: bankAcc.decrease_label.split(' - ')[0],
       activity_subtype: bankAcc.decrease_label.split(' - ')[1] ?? '',
