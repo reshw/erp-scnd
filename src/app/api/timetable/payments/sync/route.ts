@@ -52,15 +52,18 @@ type PaymentRow = {
 }
 
 /**
- * 채널 → 차변 계정. 승인 시점엔 현금이 안 들어와 있으므로 전부 미수금으로 잡고,
- * 후속 단계에서 정산(입금) 데이터가 붙으면 그때 대변으로 소멸시킨다.
+ * 채널 → 차변 계정. 카드·PG는 카드사 정산 전까지 미수금으로 잡고, 후속 단계에서
+ * 정산(입금) 데이터가 붙으면 그때 대변으로 소멸시킨다. 현금은 정산 지연이 없어
+ * (매장에서 바로 받는 돈) 미수금이 아니라 현금 자산으로 즉시 잡는다 — 통장 입금은
+ * 별도 수기 전표(차변 보통예금/대변 현금)로 처리한다.
  * 값이 null이면 자동전표 대상이 아니라는 뜻(사유는 receivableAccountName 참조).
  */
 function receivableAccountName(source: string, method: string | null): string | null {
   switch (source) {
     case 'toss':
-      // POS 현장결제. CASH(현금)·EXTERNAL(외부단말)은 통장으로 들어오는 돈이 아니라 수동처리한다.
-      return method === 'CASH' || method === 'EXTERNAL' ? null : '미수금(신용카드)'
+      // POS 현장결제. EXTERNAL(외부단말)은 어느 채널로 정산될지 알 수 없어 수동처리한다.
+      if (method === 'EXTERNAL') return null
+      return method === 'CASH' ? '현금' : '미수금(신용카드)'
     case 'card':
       return '미수금(신용카드)'
     case 'portone':
@@ -69,7 +72,7 @@ function receivableAccountName(source: string, method: string | null): string | 
     case 'bank':
       return '미수금(무통장입금)'
     case 'cash':
-      return null // 현금 수령 — 금고/입금 흐름을 사람이 판단해야 해서 자동발행하지 않는다
+      return '현금'
     default:
       return null
   }
@@ -138,7 +141,7 @@ export async function POST(req: NextRequest) {
   // 4. 계정과목·프로젝트 준비
   const [{ data: accounts }, { data: project }] = await Promise.all([
     db.from('accounts').select(ACCOUNT_META_COLUMNS)
-      .in('name', ['판매수입', '부가세예수금', '미수금(신용카드)', '미수금(무통장입금)', '미수금(PG)']),
+      .in('name', ['판매수입', '부가세예수금', '미수금(신용카드)', '미수금(무통장입금)', '미수금(PG)', '현금']),
     db.from('projects').select('id').eq('code', PROJECT_CODE).single(),
   ])
   const accountByName = new Map<string, AccountMeta>((accounts ?? []).map((a: AccountMeta) => [a.name, a]))
