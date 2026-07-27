@@ -68,12 +68,19 @@ const PRESET_ACCOUNT_NAMES = [
   '미지급금(영업)', '관리비예수금',
 ]
 
-export default function ClearingsFilter({ accounts }: { accounts: { id: string; name: string }[] }) {
+export default function ClearingsFilter({
+  accounts,
+  projects,
+}: {
+  accounts: { id: string; name: string }[]
+  projects: { id: string; code: string }[]
+}) {
   const router = useRouter()
   const sp = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
   const [accountId, setAccountId] = useState(sp.get('account_id') ?? '')
+  const [projectId, setProjectId] = useState(sp.get('project_id') ?? '')
   const [from,      setFrom]      = useState(sp.get('from') ?? '')
   const [to,        setTo]        = useState(sp.get('to') ?? '')
   const [openOnly,  setOpenOnly]  = useState(sp.get('open_only') === '1')
@@ -85,6 +92,7 @@ export default function ClearingsFilter({ accounts }: { accounts: { id: string; 
   function buildParams(f: string, t: string, id: string = accountId) {
     const params = new URLSearchParams()
     params.set('account_id', id)
+    if (projectId) params.set('project_id', projectId)
     if (f) params.set('from', f)
     if (t) params.set('to', t)
     if (openOnly) params.set('open_only', '1')
@@ -120,7 +128,7 @@ export default function ClearingsFilter({ accounts }: { accounts: { id: string; 
           ))}
         </div>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
         <div>
           <div className="text-xs font-semibold text-gray-600 mb-1">계정과목 *</div>
           <SearchSelect
@@ -129,6 +137,15 @@ export default function ClearingsFilter({ accounts }: { accounts: { id: string; 
             onChange={setAccountId}
             placeholder="계정과목 선택..."
             required
+          />
+        </div>
+        <div>
+          <div className="text-xs font-semibold text-gray-600 mb-1">프로젝트</div>
+          <SearchSelect
+            options={projects.map(p => ({ id: p.id, label: p.code }))}
+            value={projectId}
+            onChange={setProjectId}
+            placeholder="전체"
           />
         </div>
         <div>

@@ -12,6 +12,7 @@ export default async function ClearingsPage({
 }: {
   searchParams: Promise<{
     account_id?: string
+    project_id?: string
     from?: string
     to?: string
     open_only?: string
@@ -20,11 +21,10 @@ export default async function ClearingsPage({
   const params = await searchParams
   const supabase = createAdminClient()
 
-  const { data: accounts } = await (supabase as any)
-    .from('accounts')
-    .select('id,name,normal_side')
-    .eq('is_active', true)
-    .order('name') as any
+  const [{ data: accounts }, { data: projects }] = await Promise.all([
+    (supabase as any).from('accounts').select('id,name,normal_side').eq('is_active', true).order('name'),
+    (supabase as any).from('projects').select('id,code').eq('is_active', true).order('code'),
+  ]) as any
 
   const selectedAccount = (accounts ?? []).find((a: any) => a.id === params.account_id)
 
@@ -43,6 +43,7 @@ export default async function ClearingsPage({
 
   if (params.account_id) {
     let jq = (supabase as any).from('journals').select('id').eq('is_cancelled', false)
+    if (params.project_id) jq = jq.eq('project_id', params.project_id)
     if (params.from) jq = jq.gte('date', params.from)
     if (params.to)   jq = jq.lte('date', params.to)
     const { data: validJournals } = await jq as any
@@ -104,6 +105,7 @@ export default async function ClearingsPage({
   function ledgerUrl(r: CpRow) {
     const p = new URLSearchParams({ account_id: params.account_id! })
     if (r.cp_id) p.set('cp_id', r.cp_id)
+    if (params.project_id) p.set('project_id', params.project_id)
     if (params.from) p.set('from', params.from)
     if (params.to)   p.set('to',   params.to)
     return `/ledger?${p.toString()}`
@@ -116,11 +118,12 @@ export default async function ClearingsPage({
         {selectedAccount && (
           <p className="text-sm text-gray-500 mt-0.5">
             {selectedAccount.name} · 거래처별 잔액
+            {params.project_id && ` · ${(projects ?? []).find((p: any) => p.id === params.project_id)?.code ?? ''}`}
           </p>
         )}
       </div>
 
-      <ClearingsFilter accounts={accounts ?? []} />
+      <ClearingsFilter accounts={accounts ?? []} projects={projects ?? []} />
 
       {!params.account_id && (
         <div className="text-sm text-gray-400 py-12 text-center border rounded-lg">
