@@ -1,0 +1,25 @@
+name: Loan auto-post
+
+# 마이너스통장(마통) 제외 전 대출의 정산일 도래분을 매일 미지급금(기타)으로 선발행한다.
+# Vercel Hobby 크론은 실행 신뢰도가 낮다는 게 keepalive에서 실증돼서 GitHub Actions로 돌린다.
+
+on:
+  schedule:
+    - cron: '10 15 * * *'   # 매일 UTC 15:10 (KST 00:10 — 날짜 넘어간 직후)
+  workflow_dispatch:
+
+jobs:
+  auto-post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync schedules and post due installments
+        run: |
+          response=$(curl -s -w '\n%{http_code}' -X POST https://erp.scnd.kr/api/loans/auto-execute \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          body=$(echo "$response" | sed '$d')
+          code=$(echo "$response" | tail -n1)
+          echo "$body"
+          if [ "$code" != "200" ]; then
+            echo "::error::대출 자동선발행 실패 (HTTP $code)"
+            exit 1
+          fi

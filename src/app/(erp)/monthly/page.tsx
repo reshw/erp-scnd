@@ -243,7 +243,9 @@ export default async function MonthlyPage({
     '선급', '선급환입',          // 선급금
     '입금', '환수',              // 선수금
     '예수', '정산',              // 관리비예수금
-    '비용발생', '비용집행', '',  // 미지급금(영업) — 기존 데이터는 subtype이 빈 문자열로 기록돼 있음
+    '비용발생', '비용집행', '',  // 미지급금(영업)/미지급금(기타) — 기존 데이터는 subtype이 빈 문자열로 기록돼 있음
+    '반제처리',                  // 위와 같은 계정의 반제(감소) 시 activity_subtype — insertJournalWithLines가
+                                 // 라벨(비용집행)이 아니라 타입(반제처리)을 그대로 넣어서 별도로 추가 필요
   ])
   type PLMonth = { revenue: number; opex: number; interest: number }
   const pl: Record<string, PLMonth> = {}
