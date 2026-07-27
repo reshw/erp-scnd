@@ -3,13 +3,17 @@ import { ACCOUNT_META_COLUMNS, insertJournalWithLines, type AccountMeta } from '
 import { RECEIVABLE_ACCOUNT_NAMES } from '@/lib/timetablePayments'
 import { NextRequest, NextResponse } from 'next/server'
 
+// nadia/timetable 카드·현금 정산금이 실제로 들어오는 계좌. 계좌가 늘면 파라미터화한다.
+const SETTLEMENT_BANK_ACCOUNT_NAME = '통장-기업-레저'
+
 /**
  * POST /api/timetable/payments/settle
  *
  * /receivables 화면에서 미수금·현금 항목 하나를 실제 입금액과 매칭해 정산 전표를 낸다.
  * body: { external_id, deposit_amount, date }
  *
- * 전표: 차변 보통예금(입금액) + 차변 판관비(지급수수료)(총액-입금액, 0이면 생략)
+ * 전표: 차변 보통예금(입금액, 거래처=SETTLEMENT_BANK_ACCOUNT_NAME)
+ *       + 차변 판관비(지급수수료)(총액-입금액, 0이면 생략)
  *       / 대변 [원 posting이 잡았던 계정](총액)
  */
 export async function POST(req: NextRequest) {
@@ -65,7 +69,7 @@ export async function POST(req: NextRequest) {
   const description = `${label} 정산 입금 (${receivableAcc.name}${origNo ? `, 전표 #${origNo}` : ''})`
 
   const lines = [
-    { account: bankAcc as AccountMeta, side: 'debit' as const, amount: deposit_amount },
+    { account: bankAcc as AccountMeta, side: 'debit' as const, amount: deposit_amount, counterparty_name: SETTLEMENT_BANK_ACCOUNT_NAME },
     ...(fee > 0 ? [{ account: feeAcc as AccountMeta, side: 'debit' as const, amount: fee, note: '카드 가맹점수수료 (면세)' }] : []),
     { account: receivableAcc, side: 'credit' as const, amount: gross },
   ]
