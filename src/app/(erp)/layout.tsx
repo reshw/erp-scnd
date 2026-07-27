@@ -14,6 +14,7 @@ const NAV_GROUPS: { label: string; links: { href: string; label: string; highlig
     links: [
       { href: '/ledger', label: '계정원장' },
       { href: '/clearings', label: '미결잔액' },
+      { href: '/receivables', label: '정산대사' },
       { href: '/monthly', label: '월말마감' },
       { href: '/vat', label: '부가세' },
     ],

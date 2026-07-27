@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { ACCOUNT_META_COLUMNS, insertJournalWithLines, type AccountMeta } from '@/lib/journal'
+import { receivableAccountName } from '@/lib/timetablePayments'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -49,33 +50,6 @@ type PaymentRow = {
   is_test: boolean
   paid_at: string | null
   updated_at: string
-}
-
-/**
- * 채널 → 차변 계정. 카드·PG는 카드사 정산 전까지 미수금으로 잡고, 후속 단계에서
- * 정산(입금) 데이터가 붙으면 그때 대변으로 소멸시킨다. 현금은 정산 지연이 없어
- * (매장에서 바로 받는 돈) 미수금이 아니라 현금 자산으로 즉시 잡는다 — 통장 입금은
- * 별도 수기 전표(차변 보통예금/대변 현금)로 처리한다.
- * 값이 null이면 자동전표 대상이 아니라는 뜻(사유는 receivableAccountName 참조).
- */
-function receivableAccountName(source: string, method: string | null): string | null {
-  switch (source) {
-    case 'toss':
-      // POS 현장결제. EXTERNAL(외부단말)은 어느 채널로 정산될지 알 수 없어 수동처리한다.
-      if (method === 'EXTERNAL') return null
-      return method === 'CASH' ? '현금' : '미수금(신용카드)'
-    case 'card':
-      return '미수금(신용카드)'
-    case 'portone':
-    case 'kakaopay':
-      return '미수금(PG)'
-    case 'bank':
-      return '미수금(무통장입금)'
-    case 'cash':
-      return '현금'
-    default:
-      return null
-  }
 }
 
 /** UTC ISO8601 → KST 달력일(YYYY-MM-DD). timetable은 시각을 UTC로 내보낸다. */
