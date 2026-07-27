@@ -25,6 +25,19 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
 
   const isOverdraft = loan.loan_type === '마이너스통장'
 
+  // ── 마이너스통장: 같은 계좌+거래처를 나눠쓰는 그룹(정액/잔여) 여부 ──────
+  let interestGroup: { id: string; name: string; project_code: string | null; is_residual: boolean }[] = []
+  if (isOverdraft && loan.account_id && loan.counterparty_id) {
+    const { data } = await (supabase as any)
+      .from('loans')
+      .select('id, name, is_interest_residual, projects(code)')
+      .eq('account_id', loan.account_id)
+      .eq('counterparty_id', loan.counterparty_id) as any
+    interestGroup = (data ?? []).map((l: any) => ({
+      id: l.id, name: l.name, project_code: l.projects?.code ?? null, is_residual: l.is_interest_residual,
+    }))
+  }
+
   // ── 마이너스통장: 금리 변동 이력 ─────────────────────────────────────
   let rateHistory: any[] = []
   if (isOverdraft) {
@@ -134,6 +147,8 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
             annual_rate: Number(r.annual_rate),
             note: r.note ?? null,
           }))}
+          isResidual={loan.is_interest_residual ?? false}
+          interestGroup={interestGroup}
         />
       ) : (
         <LoanScheduleTable

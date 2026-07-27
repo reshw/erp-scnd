@@ -45,6 +45,21 @@ interface RateEntry {
   note: string | null
 }
 
+interface InterestGroupMember {
+  id: string
+  name: string
+  project_code: string | null
+  is_residual: boolean
+}
+
+interface GroupBreakdownEntry {
+  loan_id: string
+  loan_name: string
+  project_code: string | null
+  interest: number
+  is_residual: boolean
+}
+
 interface Props {
   loanId: string
   overdraftLimit: number | null
@@ -56,12 +71,14 @@ interface Props {
   settlementWeekday: number | null
   settlementWeekOfMonth: number | null
   rateHistory: RateEntry[]
+  isResidual: boolean
+  interestGroup: InterestGroupMember[]
 }
 
 export default function OverdraftDetail({
   loanId, overdraftLimit, annualRate, includeDrawDay, lines,
   settlementType, settlementDay, settlementWeekday, settlementWeekOfMonth,
-  rateHistory,
+  rateHistory, isResidual, interestGroup,
 }: Props) {
   const router = useRouter()
 
@@ -88,6 +105,46 @@ export default function OverdraftDetail({
   const [calcMonth, setCalcMonth] = useState(defaultMonth)
   const [calcResult, setCalcResult] = useState<CalcResult | null>(null)
   const [calculating, setCalculating] = useState(false)
+
+  // 그룹(정액+잔여) 이자 등록
+  const showGroup = isResidual && interestGroup.length > 1
+  const [groupMonth, setGroupMonth] = useState(defaultMonth)
+  const [actualTotal, setActualTotal] = useState('')
+  const [groupResult, setGroupResult] = useState<{ breakdown: GroupBreakdownEntry[]; fixedSum: number; residualAmount: number } | null>(null)
+  const [groupCalculating, setGroupCalculating] = useState(false)
+  const [groupPosting, setGroupPosting] = useState(false)
+  const [groupError, setGroupError] = useState('')
+  const [groupPosted, setGroupPosted] = useState<{ loan_name: string; interest: number }[] | null>(null)
+
+  async function handleGroupCalc() {
+    if (!actualTotal) return
+    setGroupCalculating(true); setGroupError(''); setGroupResult(null); setGroupPosted(null)
+    const { from, to } = periodOf(groupMonth)
+    const params = new URLSearchParams({ loanId, from, to, actualTotal })
+    const res = await fetch(`/api/loans/overdraft-group-interest?${params.toString()}`)
+    const data = await res.json()
+    setGroupCalculating(false)
+    if (!res.ok) { setGroupError(data.error ?? '계산 실패'); return }
+    setGroupResult(data)
+  }
+
+  async function handleGroupPost() {
+    if (!groupResult) return
+    setGroupPosting(true); setGroupError('')
+    const { from, to } = periodOf(groupMonth)
+    const res = await fetch('/api/loans/overdraft-group-interest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loanId, from, to, actualTotal: Number(actualTotal), month: groupMonth }),
+    })
+    const data = await res.json()
+    setGroupPosting(false)
+    if (!res.ok) { setGroupError(data.error ?? '발행 실패'); return }
+    setGroupPosted(data.posted.map((p: any) => ({ loan_name: p.loan_name, interest: p.interest })))
+    setGroupResult(null)
+    setActualTotal('')
+    router.refresh()
+  }
 
   // 금리 변동 입력
   const [rateDate, setRateDate] = useState('')
@@ -435,6 +492,90 @@ export default function OverdraftDetail({
           </div>
         )}
       </div>
+
+      {/* 그룹(정액+잔여) 이자 등록 — 같은 마통을 나눠쓰는 대출이 여럿이고 이 대출이 잔여일 때만 */}
+      {showGroup && (
+        <div className="border rounded-lg p-5 space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">그룹 이자 등록 (정액 + 잔여)</h3>
+            <p className="text-xs text-gray-400 mt-1">
+              이 마통을 나눠쓰는 프로젝트: {interestGroup.map(g => `${g.project_code ?? g.name}${g.is_residual ? '(잔여)' : '(정액)'}`).join(', ')}.{' '}
+              정액 프로젝트는 기존 정밀계산을 그대로 쓰고, 잔여(이 대출)는 실제 청구총액에서
+              정액 합을 뺀 나머지로 계산합니다.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="month"
+              value={groupMonth}
+              onChange={e => { setGroupMonth(e.target.value); setGroupResult(null); setGroupPosted(null) }}
+              className="border rounded px-3 py-2 text-sm"
+            />
+            <input
+              type="number"
+              value={actualTotal}
+              onChange={e => { setActualTotal(e.target.value); setGroupResult(null); setGroupPosted(null) }}
+              placeholder="실제 청구 이자 총액"
+              className="border rounded px-3 py-2 text-sm w-40 text-right"
+            />
+            <Button size="sm" variant="outline" disabled={groupCalculating || !actualTotal} onClick={handleGroupCalc}>
+              {groupCalculating ? '계산 중...' : '계산'}
+            </Button>
+          </div>
+
+          {groupError && <p className="text-red-500 text-xs">{groupError}</p>}
+
+          {groupResult && (
+            <div className="space-y-3">
+              <table className="w-full text-sm border rounded-lg overflow-hidden">
+                <thead className="bg-gray-50 text-xs text-gray-500">
+                  <tr>
+                    <th className="text-left px-3 py-2">프로젝트</th>
+                    <th className="text-left px-3 py-2">구분</th>
+                    <th className="text-right px-3 py-2">이자</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {groupResult.breakdown.map(b => (
+                    <tr key={b.loan_id} className={b.is_residual ? 'bg-blue-50/40' : ''}>
+                      <td className="px-3 py-2">{b.project_code ?? b.loan_name}</td>
+                      <td className="px-3 py-2 text-xs text-gray-400">{b.is_residual ? '잔여(역산)' : '정액'}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums font-medium ${b.interest < 0 ? 'text-red-600' : 'text-orange-600'}`}>
+                        {fmt(b.interest)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-gray-50 border-t font-semibold">
+                    <td className="px-3 py-2" colSpan={2}>합계 (실제 청구총액과 일치)</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmt(groupResult.fixedSum + groupResult.residualAmount)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+              {groupResult.residualAmount < 0 && (
+                <p className="text-xs text-red-500">
+                  잔여가 음수입니다 — 정액 합({fmt(groupResult.fixedSum)})이 실제 청구총액보다 큽니다. 입력값을 확인하세요.
+                </p>
+              )}
+              <div className="flex justify-end">
+                <Button size="sm" disabled={groupPosting} onClick={handleGroupPost}>
+                  {groupPosting ? '발행 중...' : `전표 ${groupResult.breakdown.filter(b => b.interest !== 0).length}개 일괄 발행`}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {groupPosted && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-1">
+              <p className="text-sm font-semibold text-green-800">발행 완료</p>
+              {groupPosted.map(p => (
+                <p key={p.loan_name} className="text-xs text-green-700">{p.loan_name}: {fmt(p.interest)}원</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
