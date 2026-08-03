@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   const lines = [
     { account_id: rentAccId, debit: rent_supply_amount, credit: 0, activity_type: '영업', activity_subtype: '매입', classification: '영업 - 매입', counterparty_name, note: description, date },
     { account_id: vatAccId, debit: rent_vat_amount, credit: 0, activity_type: '세무', activity_subtype: '대급', classification: '세무 - 대급', counterparty_name, note: description, date },
-    { account_id: apAccId, debit: 0, credit: rent_total_amount, activity_type: '영업', activity_subtype: '매입', classification: '영업 - 매입', counterparty_name, note: description, date },
+    { account_id: apAccId, debit: 0, credit: rent_total_amount, activity_type: '영업', activity_subtype: '', classification: '비용발생', counterparty_name, note: description, date },
   ]
 
   let journal: { id: string; journal_no: number } | null = null
