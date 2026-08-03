@@ -135,3 +135,38 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, period, journal_id: journal.id, journal_no: journal.journal_no })
 }
+
+/**
+ * GET /api/timetable/venue-fee?period=2026-07
+ *
+ * 해당 period가 이미 접수·전표발행됐는지 확인용. POST 응답이 네트워크 문제로 유실됐거나
+ * 인증 오류 등으로 실패 여부가 불확실할 때, 재전송 전에 먼저 이걸로 확인해서 중복발행
+ * 우려 없이 판단할 수 있다. POST와 마찬가지로 Bearer 인증 필요.
+ */
+export async function GET(req: NextRequest) {
+  if (req.headers.get('authorization') !== `Bearer ${process.env.TIMETABLE_ERP_WEBHOOK_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const period = req.nextUrl.searchParams.get('period') ?? ''
+  if (!/^\d{4}-\d{2}$/.test(period)) {
+    return NextResponse.json({ error: 'period 쿼리파라미터가 YYYY-MM 형식이어야 합니다' }, { status: 400 })
+  }
+
+  const supabase = createAdminClient()
+  const { data: existing } = await (supabase as any)
+    .from('venue_fee_postings')
+    .select('journal_id, journals(journal_no, date)')
+    .eq('period', period)
+    .maybeSingle()
+
+  if (!existing) return NextResponse.json({ ok: true, period, posted: false })
+  return NextResponse.json({
+    ok: true,
+    period,
+    posted: true,
+    journal_id: existing.journal_id,
+    journal_no: existing.journals?.journal_no,
+    journal_date: existing.journals?.date,
+  })
+}
