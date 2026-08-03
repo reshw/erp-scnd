@@ -254,10 +254,14 @@ export default async function MonthlyPage({
     if (PL_EXCLUDE_SUBTYPES.has(r.activity_subtype)) continue
     const mk = r.month.slice(0, 7)
     if (!pl[mk]) pl[mk] = { revenue: 0, opex: 0, interest: 0 }
-    pl[mk].revenue += Number(r.total_credit)
-    if (r.activity_subtype === '금융비용') {
+    if (r.activity_subtype === '매출취소') {
+      // 매출 계정(판매수입/임대료수입 등)의 감소 라벨 — 취소분은 별도 비용이 아니라 매출에서 순액 차감
+      pl[mk].revenue -= Number(r.total_debit)
+    } else if (r.activity_subtype === '금융비용') {
+      pl[mk].revenue += Number(r.total_credit)
       pl[mk].interest += Number(r.total_debit)
     } else {
+      pl[mk].revenue += Number(r.total_credit)
       pl[mk].opex += Number(r.total_debit)
     }
   }
