@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import BankBalanceTable from './BankBalanceTable'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
@@ -47,14 +48,26 @@ export default async function DashboardPage() {
     projectBalance[pid] = (projectBalance[pid] ?? 0) + (l.debit ?? 0) - (l.credit ?? 0)
   }
 
-  // 통장별 잔고
+  // 통장별 잔고 (실제 은행계좌가 아닌 거래처는 제외 — 예: 대출-마통경남은 마통 이자
+  // 자동정산이 보통예금 계정으로 찍히면서 딸려 들어오는 것일 뿐 통장이 아님)
   const bankBalance: Record<string, number> = {}
   for (const l of bankLines) {
     const cp = l.counterparty_name
-    if (!cp) continue
+    if (!cp || cp === '대출-마통경남') continue
     bankBalance[cp] = (bankBalance[cp] ?? 0) + (l.debit ?? 0) - (l.credit ?? 0)
   }
-  const bankEntries = Object.entries(bankBalance).sort((a, b) => b[1] - a[1])
+  // 표시 순서(사용자가 대시보드에서 직접 정렬) — 없는 통장은 뒤로 밀어서 잔고 내림차순으로 보충
+  const { data: displayOrderRaw } = await supabase
+    .from('bank_display_order').select('name, sort_order') as any
+  const displayOrder: Record<string, number> = Object.fromEntries(
+    ((displayOrderRaw ?? []) as Array<{ name: string; sort_order: number }>).map(d => [d.name, d.sort_order])
+  )
+  const bankEntries = Object.entries(bankBalance).sort((a, b) => {
+    const oa = displayOrder[a[0]] ?? Infinity
+    const ob = displayOrder[b[0]] ?? Infinity
+    if (oa !== ob) return oa - ob
+    return b[1] - a[1]
+  })
   const totalBankBalance = bankEntries.reduce((s, [, v]) => s + v, 0)
 
   // ── 무결성 체크: 전표별 차대 불균형 ──────────────────
@@ -187,33 +200,10 @@ export default async function DashboardPage() {
         </div>
 
         {/* 통장별 */}
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500">
-              <tr>
-                <th className="text-left px-4 py-2">통장</th>
-                <th className="text-right px-4 py-2">잔고</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {bankEntries.map(([name, bal]) => (
-                <tr key={name}>
-                  <td className="px-4 py-2 text-gray-700">{name}</td>
-                  <td className={`px-4 py-2 text-right tabular-nums font-medium ${bal < 0 ? 'text-red-600' : ''}`}>{fmt(bal)}</td>
-                </tr>
-              ))}
-              {bankEntries.length === 0 && (
-                <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">데이터 없음</td></tr>
-              )}
-            </tbody>
-            <tfoot className="bg-gray-50 font-bold text-sm">
-              <tr>
-                <td className="px-4 py-2 text-gray-600">합계</td>
-                <td className={`px-4 py-2 text-right tabular-nums ${totalBankBalance < 0 ? 'text-red-600' : ''}`}>{fmt(totalBankBalance)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+        <BankBalanceTable
+          entries={bankEntries.map(([name, balance]) => ({ name, balance }))}
+          total={totalBankBalance}
+        />
       </div>
 
       {(unbalancedJournals.length > 0 || unbalancedProjects.length > 0) && (
