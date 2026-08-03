@@ -153,7 +153,10 @@ export async function calcOverdraftInterest(
 }
 
 /**
- * 대출 하나에 대해 이자비용 전표(차변 이자비용 / 대변 보통예금)를 발행한다.
+ * 대출 하나에 대해 이자비용 전표(차변 이자비용 / 대변 장기차입금)를 발행한다.
+ * 마통은 이자가 실제 현금 유출 없이 대출 잔액 자체에 얹히는 구조라 보통예금이 아닌
+ * 장기차입금이 대변이어야 한다(2026-05~07월 한때 보통예금으로 잘못 나가던 버그를
+ * 2026-07-27에 수정).
  * `/api/loans/[id]/overdraft-interest` POST와 그룹 이자 등록이 공유한다.
  */
 export async function postOverdraftInterestJournal(
@@ -168,10 +171,10 @@ export async function postOverdraftInterestJournal(
   const { data: accountRows } = await db
     .from('accounts')
     .select('id, name, increase_label, decrease_label')
-    .in('name', ['이자비용', '보통예금'])
+    .in('name', ['이자비용', '장기차입금'])
   const interestAcc = accountRows?.find((a: any) => a.name === '이자비용')
-  const bankAcc = accountRows?.find((a: any) => a.name === '보통예금')
-  if (!interestAcc || !bankAcc) return { error: '이자비용 또는 보통예금 계정을 찾을 수 없습니다' }
+  const loanAcc = accountRows?.find((a: any) => a.name === '장기차입금')
+  if (!interestAcc || !loanAcc) return { error: '이자비용 또는 장기차입금 계정을 찾을 수 없습니다' }
 
   const { data: lastJ } = await db.from('journals').select('journal_no').order('journal_no', { ascending: false }).limit(1).single()
   const nextNo = (lastJ?.journal_no ?? 0) + 1
@@ -193,10 +196,10 @@ export async function postOverdraftInterestJournal(
       debit: interest, credit: 0, counterparty_id: loan?.counterparty_id ?? null, note,
     },
     {
-      journal_id: journal.id, date, account_id: bankAcc.id,
-      classification: bankAcc.decrease_label,
-      activity_type: bankAcc.decrease_label.split(' - ')[0],
-      activity_subtype: bankAcc.decrease_label.split(' - ')[1] ?? '',
+      journal_id: journal.id, date, account_id: loanAcc.id,
+      classification: loanAcc.increase_label,
+      activity_type: loanAcc.increase_label.split(' - ')[0],
+      activity_subtype: loanAcc.increase_label.split(' - ')[1] ?? '',
       debit: 0, credit: interest, counterparty_id: loan?.counterparty_id ?? null, note,
     },
   ])

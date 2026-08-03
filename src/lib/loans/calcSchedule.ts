@@ -6,6 +6,11 @@ export type Prepayment = {
   journal_id: string | null
 }
 
+export type RateChange = {
+  effective_date: string
+  annual_rate: number
+}
+
 export type ScheduleRow = {
   month: string
   payDate: string   // 실제 납부일 YYYY-MM-DD (spending_executions.planned_date 용)
@@ -44,6 +49,7 @@ export function calcSchedule(
   prepayments: Prepayment[] = [],
   pmtFloor: boolean = false,
   interestRound: RoundMode = 'round',
+  rateHistory: RateChange[] = [],
 ): ScheduleRow[] {
   const start = new Date(startDate)
   const end   = new Date(endDate)
@@ -72,10 +78,21 @@ export function calcSchedule(
 
   const r = annualRate / 12
   const pmtRaw = r === 0 ? principal / n : principal * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1)
-  const pmt = loanType === '원리금균등'
+  let pmt = loanType === '원리금균등'
     ? (pmtFloor ? Math.floor(pmtRaw / 10) * 10 : Math.trunc(pmtRaw))
     : 0
+  let pmtRate = annualRate
   const fixedRepayment = loanType === '원금균등' ? Math.round(principal / n) : 0
+
+  const sortedRateHistory = [...rateHistory].sort((a, b) => a.effective_date.localeCompare(b.effective_date))
+  function rateFor(dateStr: string): number {
+    let rate = annualRate
+    for (const rc of sortedRateHistory) {
+      if (rc.effective_date <= dateStr) rate = Number(rc.annual_rate)
+      else break
+    }
+    return rate
+  }
 
   const prepQueue = [...prepayments].sort((a, b) => a.date.localeCompare(b.date))
   let prevDate = new Date(start)
@@ -87,7 +104,8 @@ export function calcSchedule(
   // 일할이자 선납 행
   if (hasPartial) {
     const stubDays = Math.round((firstPayDate.getTime() - start.getTime()) / 86400000)
-    const stubInterest = applyRound(principal * annualRate / 365 * stubDays, interestRound)
+    const stubRate = rateFor(toYMD(firstPayDate))
+    const stubInterest = applyRound(principal * stubRate / 365 * stubDays, interestRound)
     const stubMonth = `${firstPayDate.getFullYear()}-${String(firstPayDate.getMonth() + 1).padStart(2, '0')}`
     rows.push({ month: stubMonth, payDate: toYMD(firstPayDate), payment: stubInterest, interest: stubInterest, repayment: 0, balance: principal, partial: true })
     prevDate = firstPayDate
@@ -115,16 +133,25 @@ export function calcSchedule(
 
     const isLast = i === n - 1
     const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const rowRate = rateFor(toYMD(d))
+
+    if (loanType === '원리금균등' && rowRate !== pmtRate) {
+      const remN = n - i
+      const rr = rowRate / 12
+      const pmtRawNew = rr === 0 ? balance / remN : balance * rr * Math.pow(1 + rr, remN) / (Math.pow(1 + rr, remN) - 1)
+      pmt = pmtFloor ? Math.floor(pmtRawNew / 10) * 10 : Math.trunc(pmtRawNew)
+      pmtRate = rowRate
+    }
 
     let interest: number, days: number | undefined
     if (interestCalc === 'daily_30') {
       days = 30
-      interest = applyRound(balance * annualRate / 365 * 30, interestRound)
+      interest = applyRound(balance * rowRate / 365 * 30, interestRound)
     } else if (interestCalc === 'daily_actual') {
       days = Math.round((d.getTime() - prevDate.getTime()) / 86400000)
-      interest = applyRound(balance * annualRate / 365 * days, interestRound)
+      interest = applyRound(balance * rowRate / 365 * days, interestRound)
     } else {
-      interest = applyRound(balance * annualRate / 12, interestRound)
+      interest = applyRound(balance * rowRate / 12, interestRound)
     }
 
     let repayment: number, payment: number

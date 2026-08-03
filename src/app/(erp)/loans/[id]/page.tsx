@@ -38,16 +38,13 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
     }))
   }
 
-  // ── 마이너스통장: 금리 변동 이력 ─────────────────────────────────────
-  let rateHistory: any[] = []
-  if (isOverdraft) {
-    const { data } = await (supabase as any)
-      .from('loan_rate_history')
-      .select('id, effective_date, annual_rate, note')
-      .eq('loan_id', id)
-      .order('effective_date') as any
-    rateHistory = data ?? []
-  }
+  // ── 금리 변동 이력 (마통 이자계산 + 원리금균등/만기일시 스케줄 재계산 공용) ──
+  const { data: rateHistoryData } = await (supabase as any)
+    .from('loan_rate_history')
+    .select('id, effective_date, annual_rate, note')
+    .eq('loan_id', id)
+    .order('effective_date') as any
+  const rateHistory: any[] = rateHistoryData ?? []
 
   // ── 마이너스통장: 전표 기반 인출/상환 내역 조회 ──────────────────────
   let overdraftLines: any[] = []
@@ -100,6 +97,7 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
       prepayments,
       loan.pmt_floor ?? false,
       loan.interest_round ?? 'round',
+      rateHistory.map((r: any) => ({ effective_date: r.effective_date, annual_rate: Number(r.annual_rate) })),
     )
   }
 

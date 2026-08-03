@@ -16,6 +16,9 @@ export async function syncLoanExecutions(supabase: any, loanId: string) {
   const { data: prepayments } = await supabase
     .from('loan_prepayments').select('*').eq('loan_id', loanId).order('date')
 
+  const { data: rateHistory } = await supabase
+    .from('loan_rate_history').select('effective_date, annual_rate').eq('loan_id', loanId).order('effective_date')
+
   const schedule = calcSchedule(
     Number(loan.principal),
     Number(loan.interest_rate),
@@ -28,6 +31,7 @@ export async function syncLoanExecutions(supabase: any, loanId: string) {
     prepayments ?? [],
     loan.pmt_floor ?? false,
     loan.interest_round ?? 'round',
+    (rateHistory ?? []).map((r: any) => ({ effective_date: r.effective_date, annual_rate: Number(r.annual_rate) })),
   )
 
   // 기존 pending 삭제
