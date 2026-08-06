@@ -152,10 +152,23 @@ export default async function DashboardPage() {
     linesByJournal[l.journal_id] = (linesByJournal[l.journal_id] ?? 0) + (l.debit ?? 0)
   }
 
+  const { count: pendingDraftCount } = await (supabase as any)
+    .from('journal_drafts')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending')
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
         <h2 className="text-xl font-bold">대시보드</h2>
+        {!!pendingDraftCount && (
+          <Link
+            href="/journal-drafts"
+            className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+          >
+            승인 대기 {pendingDraftCount}건
+          </Link>
+        )}
         {unbalancedJournals.length === 0 && unbalancedProjects.length === 0 && (
           <span
             title="무결성 검사 완료 — 모든 전표의 차변·대변이 일치합니다."

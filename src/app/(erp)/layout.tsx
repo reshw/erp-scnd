@@ -33,6 +33,8 @@ const NAV_GROUPS: { label: string; links: { href: string; label: string; highlig
     links: [
       { href: '/loans', label: '대출' },
       { href: '/spending', label: '지출예정' },
+      { href: '/journal-drafts', label: '전표승인', highlight: true },
+      { href: '/staff-access', label: '직원 접근 관리' },
     ],
   },
 ]

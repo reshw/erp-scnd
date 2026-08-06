@@ -4,6 +4,73 @@
 
 ---
 
+## 직원용 ERP AI 에이전트 — 스코프 DB 키 + 전표 대기열 + 승인 워크플로 + 직원 웹 조회
+
+**결정일:** 2026-08-06
+**계기:** NADIA 직원(영업직, 회계 비전문)에게 회계 업무를 열어주려는데 ERP 화면이 너무
+어려움. 이 세션에서 사용자가 나에게 자연어로 "전표 쳐줘"라고 하면 발행해주는 방식을
+직원에게도 주자는 아이디어에서 출발.
+
+### 폐기된 대안들 (설계를 여러 번 뒤집으며 확정)
+
+1. **2026-07-22~23 원안(웹 로그인 + status 플래그)**: 직원이 웹 화면에서 직접 입력, 미승인
+   전표는 status 컬럼으로 구분. **기각** — journals를 직접 읽는 20여 곳이 필터를 하나라도
+   빠뜨리면 미승인 건이 손익/VAT에 샌다(당시 사용자가 직접 철회).
+2. **웹 로그인 + RLS + 승인 UI(이번 세션 1차안)**: 직원이 웹 화면으로 입력, RLS로 프로젝트
+   제한. **기각** — 웹 입력 자체를 안 쓰기로 방향이 바뀜(AI 대화형 입력 채택). RLS는
+   애초에 이 앱의 데이터 접근이 거의 다 `createAdminClient()`(service_role, RLS 우회)를
+   거쳐서 웹 쪽에선 실효성 없다는 것도 확인됨.
+3. **NADIA 특화 별도 폴더(2차안)**: 직원 AI 키트를 "NADIA용"으로 하드코딩. **기각** —
+   "다양한 프로젝트에 대응되는 범용 에이전트여야 한다"는 지적으로, 스코프/관행을 폴더가
+   아니라 DB(`staff_access`, `posting_conventions`)에서 읽어오는 구조로 전환.
+4. **직원용 별도 웹 없이 AI만(3차안)**: "잔액 얼마야?"를 AI에게 물어보게만 함. **기각** —
+   "AI가 말하는 숫자는 신뢰가 안 간다"는 지적으로, 확정 수치는 반드시 ERP 웹(`/staff`)에서
+   확인하게 함(AI는 입력 전용, 조회는 웹).
+
+### 확정된 구조
+
+- **입력(AI)**: 직원은 `D:\dev\erp-ai-agent\`(별도 git repo, 프로젝트 중립)를 받아 자기
+  DB 키를 `.env`에 넣고 Claude Code로 대화한다. 스코프(`staff_access`)와 전표 관행
+  (`posting_conventions`)은 전부 DB에서 읽어오므로 폴더 자체엔 프로젝트 지식이 없다.
+- **방어선은 Postgres 권한 자체** — `journals`/`journal_lines`에 INSERT/UPDATE/DELETE
+  GRANT를 아예 안 줘서, 직원 AI가 뭘 하려 하든 DB가 거부한다(RLS 이전 단계의 원천 차단).
+  쓸 수 있는 건 `journal_drafts`/`journal_draft_lines`(대기열)뿐 — SAP 문서 파킹과 동일한
+  원리. RLS는 SELECT 스코프(자기 프로젝트만)와 draft INSERT 시 project_id 강제에 씀.
+  그룹 role `project_scoped_agent`에 정책을 걸어서 다음 직원 추가는 `GRANT ... TO`
+  한 줄로 끝남.
+- **승인**: 관리자가 `/journal-drafts`(웹) 또는 나에게 "대기열 확인해줘"(대화)로 승인/반려.
+  승인 시 `journal_no` 채번 후 `journals`/`journal_lines`에 확정 발행.
+- **조회(웹)**: 직원은 `/staff`(잔액·손익), `/staff/journals`(전표 조회),
+  `/staff/drafts`(내 상신함)만 볼 수 있다. `src/proxy.ts`가 화이트리스트 밖 전부를
+  `/staff`로 리다이렉트(**주의**: `startsWith('/staff')`로 짰다가 `/staff-access`
+  까지 통과해버리는 버그가 실제로 발생해 `=== '/staff' || startsWith('/staff/')`로
+  수정 — 접두어 매칭 화이트리스트를 짤 때 반복될 수 있는 실수라 기록해둠).
+- **관리**: `/staff-access`(관리자 전용)에서 발급(AI 키+웹 로그인 동시 생성)/차단
+  (`ALTER ROLE NOLOGIN` + Supabase Auth ban, 이중 차단)/재활성화.
+- **계정 모델**: `app_metadata.role`이 없으면 기존 계정처럼 `admin`(하위호환, 기존 유일
+  계정 reshw@naver.com 무변경). `role==='employee'`일 때만 `allowed_project_id`로 제한.
+
+### 검증 완료 (Browser 도구로 end-to-end)
+
+테스트 DB 키로 직접 접속해 SELECT 스코프/INSERT 거부/draft 삽입·거부를 확인한 뒤,
+`claude-test@mdl.kr`(관리자 테스트 계정, 앞으로 내 UI 검증용)과 `alert@mdl.kr`(NADIA
+직원, DB 키 `nadia_employee_62a580`)을 실제 발급해 리허설: 직원 키로 draft 삽입 →
+관리자 웹에서 승인 → `journals`에 정확히 채번·반영 → 직원 웹 "내 상신함"에서 승인 상태
+확인까지 전부 실측. 리허설 데이터는 삭제(단, `journal_lines`가 `journals`에 FK CASCADE가
+안 걸려 있어서 `journals`부터 지우면 고아 라인이 남는다는 것도 이번에 발견 — 지울 땐
+`journal_lines` 먼저).
+
+### 알려진 한계 / 다음에 필요하면
+
+- 직원 잔액/손익 화면(`/staff`)은 지금 손익까지 열어둠(사용자 확인: "일단 열고 나중에
+  좁혀도 됨") — 필요해지면 매출/비용 상세는 숨기고 잔액만 남기는 방향 검토.
+- `posting_conventions`에 NADIA 관행 3건만 시딩함(PG/카드결제, 대관료, 마케팅비) —
+  `docs/manual-posting-conventions.md`의 나머지 항목 중 NADIA 관련분이 더 있으면 추가.
+- 여러 직원이 같은 프로젝트를 공유할 때 `journal_drafts`를 서로의 것까지 보게 할지는
+  미결정(지금은 `created_by_role`로 본인 것만 봄) — 필요해지면 재검토.
+
+---
+
 ## /clearings — "기간" 필터를 "기준일" 스냅샷 + 프로젝트 복수선택으로 재설계
 
 **결정일:** 2026-08-09
