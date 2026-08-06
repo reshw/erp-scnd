@@ -1,15 +1,17 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { getScope } from '@/lib/auth/scope'
+import CancelButton from './CancelButton'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
 }
 
 const STATUS_LABEL: Record<string, { text: string; className: string }> = {
-  pending:  { text: '대기중',  className: 'bg-yellow-50 text-yellow-700' },
-  approved: { text: '승인됨',  className: 'bg-green-50 text-green-700' },
-  rejected: { text: '반려됨',  className: 'bg-red-50 text-red-700' },
+  pending:   { text: '대기중',  className: 'bg-yellow-50 text-yellow-700' },
+  approved:  { text: '승인됨',  className: 'bg-green-50 text-green-700' },
+  rejected:  { text: '반려됨',  className: 'bg-red-50 text-red-700' },
+  cancelled: { text: '취소됨',  className: 'bg-gray-100 text-gray-500' },
 }
 
 export default async function StaffDraftsPage() {
@@ -63,6 +65,7 @@ export default async function StaffDraftsPage() {
               <th className="text-right px-3 py-2">금액</th>
               <th className="text-left px-3 py-2">상태</th>
               <th className="text-left px-3 py-2">비고</th>
+              <th className="text-right px-3 py-2"></th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -80,11 +83,14 @@ export default async function StaffDraftsPage() {
                     {d.status === 'approved' && d.journals?.journal_no && `전표 No.${d.journals.journal_no}`}
                     {d.status === 'rejected' && (d.rejected_reason ?? '사유 없음')}
                   </td>
+                  <td className="px-3 py-2 text-right">
+                    {d.status === 'pending' && <CancelButton draftId={d.id} />}
+                  </td>
                 </tr>
               )
             })}
             {drafts.length === 0 && (
-              <tr><td colSpan={5} className="px-3 py-8 text-center text-gray-400">상신 내역 없음</td></tr>
+              <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-400">상신 내역 없음</td></tr>
             )}
           </tbody>
         </table>
