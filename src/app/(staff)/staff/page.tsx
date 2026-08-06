@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getScope } from '@/lib/auth/scope'
+import Link from 'next/link'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
@@ -12,7 +13,23 @@ const PL_EXCLUDE_SUBTYPES = new Set([
   '비용발생', '비용집행', '', '반제처리',
 ])
 
-export default async function StaffDashboard() {
+function shiftMonth(monthKey: string, delta: number): string {
+  const [y, m] = monthKey.split('-').map(Number)
+  const d = new Date(y, m - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function monthEnd(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number)
+  const lastDay = new Date(y, m, 0).getDate()
+  return `${monthKey}-${String(lastDay).padStart(2, '0')}`
+}
+
+export default async function StaffDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string }>
+}) {
   const scope = await getScope()
   if (scope.role !== 'employee') return null
   const projectId = scope.allowedProjectId
@@ -20,8 +37,20 @@ export default async function StaffDashboard() {
 
   const { data: project } = await (supabase as any).from('projects').select('code').eq('id', projectId).single()
 
-  // 이번 달 매출/비용 (monthly_cashflow 뷰, 영업 activity만)
-  const monthKey = new Date().toISOString().slice(0, 7)
+  const currentMonthKey = new Date().toISOString().slice(0, 7)
+  const { month: requestedMonth } = await searchParams
+  const monthKey = requestedMonth && /^\d{4}-\d{2}$/.test(requestedMonth) && requestedMonth <= currentMonthKey
+    ? requestedMonth
+    : currentMonthKey
+  const isCurrentMonth = monthKey === currentMonthKey
+  const prevMonth = shiftMonth(monthKey, -1)
+  const nextMonth = shiftMonth(monthKey, 1)
+  // 미결잔액/통장잔고는 "기간" 활동이 아니라 "기준일" 스냅샷 개념(docs/decisions.md의
+  // /clearings 재설계와 동일한 이유) — 선택한 달의 말일까지 누적으로 계산한다.
+  // 이번 달을 보고 있을 땐 아직 그 달이 끝나지 않았으니 오늘까지로 계산.
+  const asOfDate = isCurrentMonth ? new Date().toISOString().slice(0, 10) : monthEnd(monthKey)
+
+  // 매출/비용 (monthly_cashflow 뷰, 영업 activity만)
   const { data: cashflowRows } = await (supabase as any)
     .from('monthly_cashflow')
     .select('month, activity_type, activity_subtype, total_debit, total_credit')
@@ -37,7 +66,7 @@ export default async function StaffDashboard() {
     opex += Number(r.total_debit)
   }
 
-  // 미결잔액 (미수금/미지급금 계열) — 이 프로젝트 전표만
+  // 미결잔액 (미수금/미지급금 계열) — 이 프로젝트 전표만, 기준일까지
   const { data: balanceAccounts } = await (supabase as any)
     .from('accounts')
     .select('id, name, normal_side')
@@ -48,6 +77,7 @@ export default async function StaffDashboard() {
     .select('id')
     .eq('is_cancelled', false)
     .eq('project_id', projectId)
+    .lte('date', asOfDate)
   const validIds = (validJournals ?? []).map((j: any) => j.id)
 
   const balanceRows: { name: string; balance: number }[] = []
@@ -86,16 +116,31 @@ export default async function StaffDashboard() {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold">{project?.code ?? ''} 잔액/손익</h2>
-        <p className="text-sm text-gray-500 mt-0.5">{monthKey} 기준</p>
+        <div className="flex items-center gap-1.5 mt-1">
+          <Link
+            href={`/staff?month=${prevMonth}`}
+            className="px-2 py-0.5 rounded border text-sm text-gray-600 hover:bg-gray-50"
+          >◀</Link>
+          <span className="text-sm text-gray-700 font-medium tabular-nums w-16 text-center">{monthKey}</span>
+          {isCurrentMonth ? (
+            <span className="px-2 py-0.5 text-sm text-gray-300">▶</span>
+          ) : (
+            <Link
+              href={`/staff?month=${nextMonth}`}
+              className="px-2 py-0.5 rounded border text-sm text-gray-600 hover:bg-gray-50"
+            >▶</Link>
+          )}
+          <span className="text-xs text-gray-400 ml-1">잔액은 {asOfDate} 기준</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="border rounded-lg p-4 bg-white">
-          <div className="text-xs text-gray-500 mb-1">이번 달 매출</div>
+          <div className="text-xs text-gray-500 mb-1">{monthKey} 매출</div>
           <div className="text-xl font-bold tabular-nums">{fmt(revenue)}</div>
         </div>
         <div className="border rounded-lg p-4 bg-white">
-          <div className="text-xs text-gray-500 mb-1">이번 달 비용</div>
+          <div className="text-xs text-gray-500 mb-1">{monthKey} 비용</div>
           <div className="text-xl font-bold tabular-nums">{fmt(opex)}</div>
         </div>
       </div>
