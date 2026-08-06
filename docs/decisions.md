@@ -68,6 +68,15 @@
   `docs/manual-posting-conventions.md`의 나머지 항목 중 NADIA 관련분이 더 있으면 추가.
 - 여러 직원이 같은 프로젝트를 공유할 때 `journal_drafts`를 서로의 것까지 보게 할지는
   미결정(지금은 `created_by_role`로 본인 것만 봄) — 필요해지면 재검토.
+- 직원 1명 = `staff_access.project_id` 1개로 고정(`allowed_project_id`도 단일 값,
+  `src/lib/auth/scope.ts`). 한 직원이 여러 프로젝트를 겸하는 경우 미지원 — 같은 이메일로
+  두 번째 프로젝트를 발급하려 하면 Supabase Auth 이메일 중복으로 오히려 에러남. 필요해지면
+  `allowed_project_id`를 배열로 바꾸고 `/staff`에 프로젝트 선택 UI 추가.
+- `/staff`(잔액/손익)는 항상 이번 달만 보여주고 월 이동 UI가 없음(`src/app/(staff)/staff/page.tsx`
+  — `new Date()`로 이번 달 고정). 추가할 때 같이 고칠 것: 매출/비용 집계가
+  `monthly_cashflow.month`를 `.gte()`로 필터링해서 실제로는 "이번 달부터 끝까지" 누적임 —
+  지금은 미래 데이터가 없어서 우연히 이번 달과 같지만, 과거 달을 조회하게 되면 그 달 이후
+  전부가 합산되는 버그가 됨(`.eq('month', monthKey + '-01')`로 고쳐야 함).
 
 ---
 
