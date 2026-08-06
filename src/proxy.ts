@@ -40,7 +40,9 @@ export async function proxy(request: NextRequest) {
     path === '/staff' ||
     path.startsWith('/staff/') ||
     path.startsWith('/login') ||
-    path.startsWith('/api/auth')
+    path.startsWith('/api/auth') ||
+    // 본인 상신 대기열 취소 — 라우트 내부에서 소유권을 다시 검증하므로 여기선 통과만 시킨다.
+    (path.startsWith('/api/journal-drafts/') && path.endsWith('/cancel'))
 
   if (isEmployee && !employeeAllowed) {
     return NextResponse.redirect(new URL('/staff', request.url))
