@@ -72,6 +72,42 @@ export default async function StaffDashboard({
     }
   }
 
+  // 부가세 포함 매출 — 순매출(revenue)에 대응하는 부가세예수금만 골라야 하므로
+  // subtype 문자열(예수/지급)로는 못 거른다: 지급은 매출취소 시의 예수금 차감과
+  // 실제 세무서 납부가 같은 라벨을 씀. 대신 "같은 전표에 매출 계정 라인이 있는지"로
+  // 부가세예수금 라인을 매출 관련만 골라낸다(납부 전표는 매출 계정 라인이 없음).
+  const monthStart = `${monthKey}-01`
+  const monthLastDate = monthEnd(monthKey)
+  const { data: revenueAccounts } = await (supabase as any)
+    .from('accounts')
+    .select('id')
+    .eq('activity_type', '영업')
+    .eq('increase_type', '매출')
+  const revenueAccountIds = (revenueAccounts ?? []).map((a: any) => a.id)
+
+  let vat = 0
+  if (revenueAccountIds.length > 0) {
+    const { data: revenueLines } = await (supabase as any)
+      .from('journal_lines')
+      .select('journal_id, journals!inner(is_cancelled, project_id)')
+      .in('account_id', revenueAccountIds)
+      .eq('journals.is_cancelled', false)
+      .eq('journals.project_id', projectId)
+      .gte('date', monthStart)
+      .lte('date', monthLastDate)
+    const salesJournalIds = [...new Set((revenueLines ?? []).map((l: any) => l.journal_id))]
+
+    if (salesJournalIds.length > 0) {
+      const { data: vatLines } = await (supabase as any)
+        .from('journal_lines')
+        .select('debit, credit, accounts!inner(name)')
+        .eq('accounts.name', '부가세예수금')
+        .in('journal_id', salesJournalIds)
+      for (const l of (vatLines ?? []) as any[]) vat += l.credit - l.debit
+    }
+  }
+  const revenueGross = revenue + vat
+
   // 미결잔액 (미수금/미지급금 계열) — 이 프로젝트 전표만, 기준일까지
   const { data: balanceAccounts } = await (supabase as any)
     .from('accounts')
@@ -142,8 +178,11 @@ export default async function StaffDashboard({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="border rounded-lg p-4 bg-white">
-          <div className="text-xs text-gray-500 mb-1">{monthKey} 매출</div>
-          <div className="text-xl font-bold tabular-nums">{fmt(revenue)}</div>
+          <div className="text-xs text-gray-500 mb-1">{monthKey} 매출 (부가세 포함)</div>
+          <div className="text-xl font-bold tabular-nums">{fmt(revenueGross)}</div>
+          <div className="text-xs text-gray-400 mt-0.5 tabular-nums">
+            (순매출 {fmt(revenue)} / 부가세 {fmt(vat)})
+          </div>
         </div>
         <div className="border rounded-lg p-4 bg-white">
           <div className="text-xs text-gray-500 mb-1">{monthKey} 비용</div>
