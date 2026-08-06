@@ -10,7 +10,7 @@ export async function executeSpendingExecutions(supabase: any, ids: string[]) {
   const { data: accounts } = await (supabase as any)
     .from('accounts')
     .select('id, name, activity_type, normal_side, increase_label, decrease_label')
-    .in('name', ['이자비용', '보통예금', '장기차입금', '미지급금(영업)', '미지급금(기타)']) as any
+    .in('name', ['이자비용', '보통예금', '장기차입금', '미지급금(매입)', '미지급금(원리금)']) as any
 
   const accById = Object.fromEntries((accounts ?? []).map((a: any) => [a.id, a]))
   const accByName = Object.fromEntries((accounts ?? []).map((a: any) => [a.name, a]))
@@ -57,12 +57,12 @@ export async function executeSpendingExecutions(supabase: any, ids: string[]) {
       counterpartyName = loan?.counterparties?.name ?? null
       bankAccountName = loan?.bank_accounts?.name ?? null
 
-      // 마통(마이너스통장) 제외 전 대출은 정산일에 실제 이체 확인 없이 미지급금(기타)으로 선발행한다.
+      // 마통(마이너스통장) 제외 전 대출은 정산일에 실제 이체 확인 없이 미지급금(원리금)으로 선발행한다.
       // 실제 상환 전표는 이 미지급금 반제(/clearings)로 처리한다 — docs/manual-posting-conventions.md 참조.
       // 마통은 spending_executions을 아예 안 거치는 별도 체계라 실질적으로 이 분기를 안 타지만,
       // 의도를 명시하기 위해 조건을 남긴다.
       const preBookAsPayable = loan?.loan_type !== '마이너스통장'
-      const creditAccName = preBookAsPayable ? '미지급금(기타)' : '보통예금'
+      const creditAccName = preBookAsPayable ? '미지급금(원리금)' : '보통예금'
       const creditAccId = accId(creditAccName)
       const creditCounterpartyId = preBookAsPayable ? counterpartyId : null
       const creditCounterpartyName = preBookAsPayable ? counterpartyName : bankAccountName
@@ -134,7 +134,7 @@ export async function executeSpendingExecutions(supabase: any, ids: string[]) {
         counterpartyName = plan.counterparties?.name ?? null
 
         const planAcc = plan.accounts
-        const apAccId = accId('미지급금(영업)')
+        const apAccId = accId('미지급금(매입)')
 
         // plan 계정의 classification 계산 (debit 기준)
         const planClassification = planAcc
@@ -144,7 +144,7 @@ export async function executeSpendingExecutions(supabase: any, ids: string[]) {
         // accById에 plan 계정 추가 (classification 함수용)
         if (planAcc) accById[planAcc.id] = planAcc
 
-        // 집행 시 바로 확정비용/보통예금으로 잡지 않고 미지급금(영업)으로 먼저 발행한다.
+        // 집행 시 바로 확정비용/보통예금으로 잡지 않고 미지급금(매입)으로 먼저 발행한다.
         // 실제 이체 확인은 /clearings 반제 처리에서 별도로 한다.
         lines = [
           {
@@ -161,7 +161,7 @@ export async function executeSpendingExecutions(supabase: any, ids: string[]) {
           {
             account_id: apAccId,
             debit: 0, credit: ex.amount,
-            activity_type: accByName['미지급금(영업)']?.activity_type ?? '영업',
+            activity_type: accByName['미지급금(매입)']?.activity_type ?? '영업',
             activity_subtype: classification(apAccId, 'credit').split(' - ')[1] ?? '',
             classification: classification(apAccId, 'credit'),
             counterparty_id: counterpartyId,

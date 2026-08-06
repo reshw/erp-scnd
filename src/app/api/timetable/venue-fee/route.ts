@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     (supabase as any)
       .from('accounts')
       .select('id, name')
-      .in('name', ['지급임차료', '부가세대급금', '미지급금(영업)']),
+      .in('name', ['지급임차료', '부가세대급금', '미지급금(매입)']),
     (supabase as any)
       .from('projects')
       .select('id')
@@ -82,9 +82,9 @@ export async function POST(req: NextRequest) {
   const accId = (name: string) => (accounts ?? []).find((a: any) => a.name === name)?.id
   const rentAccId = accId('지급임차료')
   const vatAccId = accId('부가세대급금')
-  const apAccId = accId('미지급금(영업)')
+  const apAccId = accId('미지급금(매입)')
   if (!rentAccId || !vatAccId || !apAccId) {
-    return NextResponse.json({ error: '필요한 계정과목(지급임차료/부가세대급금/미지급금(영업))을 찾을 수 없습니다' }, { status: 500 })
+    return NextResponse.json({ error: '필요한 계정과목(지급임차료/부가세대급금/미지급금(매입))을 찾을 수 없습니다' }, { status: 500 })
   }
 
   const description = note?.trim() || `${period} 대관료`
