@@ -3,7 +3,6 @@
 import { useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import DateRangePicker from '@/components/ui/DateRangePicker'
 
 function SearchSelect({
   options,
@@ -65,7 +64,7 @@ function SearchSelect({
 const PRESET_ACCOUNT_NAMES = [
   '미수금(신용카드)', '미수금(무통장입금)', '미수금(PG)',
   '선급금', '선급금(투자)', '선수금',
-  '미지급금(영업)', '관리비예수금',
+  '미지급금(매입)', '미지급금(원리금)', '미지급금(기타)', '관리비예수금',
 ]
 
 export default function ClearingsFilter({
@@ -79,35 +78,50 @@ export default function ClearingsFilter({
   const sp = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
-  const [accountId, setAccountId] = useState(sp.get('account_id') ?? '')
-  const [projectId, setProjectId] = useState(sp.get('project_id') ?? '')
-  const [from,      setFrom]      = useState(sp.get('from') ?? '')
-  const [to,        setTo]        = useState(sp.get('to') ?? '')
-  const [openOnly,  setOpenOnly]  = useState(sp.get('open_only') === '1')
+  const [accountId,  setAccountId]  = useState(sp.get('account_id') ?? '')
+  const [projectIds, setProjectIds] = useState<Set<string>>(
+    new Set((sp.get('project_ids') ?? '').split(',').filter(Boolean))
+  )
+  const [asOf,       setAsOf]       = useState(sp.get('as_of') ?? '')
+  const [openOnly,   setOpenOnly]   = useState(sp.get('open_only') === '1')
+  const [projectOpen, setProjectOpen] = useState(false)
 
   const presets = PRESET_ACCOUNT_NAMES
     .map(name => accounts.find(a => a.name === name))
     .filter((a): a is { id: string; name: string } => !!a)
 
-  function buildParams(f: string, t: string, id: string = accountId) {
+  function toggleProject(id: string) {
+    setProjectIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function buildParams(id: string = accountId) {
     const params = new URLSearchParams()
     params.set('account_id', id)
-    if (projectId) params.set('project_id', projectId)
-    if (f) params.set('from', f)
-    if (t) params.set('to', t)
+    if (projectIds.size) params.set('project_ids', [...projectIds].join(','))
+    if (asOf) params.set('as_of', asOf)
     if (openOnly) params.set('open_only', '1')
     return params
   }
 
   function apply() {
     if (!accountId) return
-    startTransition(() => router.push(`/clearings?${buildParams(from, to).toString()}`))
+    startTransition(() => router.push(`/clearings?${buildParams().toString()}`))
   }
 
   function applyPreset(id: string) {
     setAccountId(id)
-    startTransition(() => router.push(`/clearings?${buildParams(from, to, id).toString()}`))
+    startTransition(() => router.push(`/clearings?${buildParams(id).toString()}`))
   }
+
+  const projectLabel = projectIds.size === 0
+    ? '전체'
+    : projectIds.size === 1
+      ? projects.find(p => projectIds.has(p.id))?.code ?? '1개'
+      : `${projectIds.size}개 선택`
 
   return (
     <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
@@ -139,26 +153,46 @@ export default function ClearingsFilter({
             required
           />
         </div>
-        <div>
+        <div className="relative">
           <div className="text-xs font-semibold text-gray-600 mb-1">프로젝트</div>
-          <SearchSelect
-            options={projects.map(p => ({ id: p.id, label: p.code }))}
-            value={projectId}
-            onChange={setProjectId}
-            placeholder="전체"
-          />
+          <button
+            type="button"
+            onClick={() => setProjectOpen(v => !v)}
+            onBlur={() => setTimeout(() => setProjectOpen(false), 150)}
+            className="w-full flex items-center justify-between border rounded px-3 py-1.5 text-sm bg-white text-left"
+          >
+            <span className={projectIds.size ? '' : 'text-gray-400'}>{projectLabel}</span>
+            <span className="text-gray-300">▾</span>
+          </button>
+          {projectOpen && (
+            <ul className="absolute z-50 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-52 overflow-y-auto text-sm p-1">
+              <li
+                onMouseDown={() => setProjectIds(new Set())}
+                className="px-2 py-1.5 rounded cursor-pointer hover:bg-gray-50 text-gray-400"
+              >
+                전체 (선택 해제)
+              </li>
+              {projects.map(p => (
+                <li
+                  key={p.id}
+                  onMouseDown={() => toggleProject(p.id)}
+                  className="px-2 py-1.5 rounded cursor-pointer hover:bg-blue-50 flex items-center gap-2"
+                >
+                  <input type="checkbox" readOnly checked={projectIds.has(p.id)} className="rounded" />
+                  {p.code}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <div>
-          <div className="text-xs font-semibold text-gray-600 mb-1">기간</div>
-          <DateRangePicker
-            from={from}
-            to={to}
-            onChange={(f, t) => { setFrom(f); setTo(t) }}
-            onMonthChange={(f, t) => {
-              if (!accountId) return
-              setFrom(f); setTo(t)
-              startTransition(() => router.push(`/clearings?${buildParams(f, t).toString()}`))
-            }}
+          <div className="text-xs font-semibold text-gray-600 mb-1">기준일</div>
+          <input
+            type="date"
+            value={asOf}
+            onChange={e => setAsOf(e.target.value)}
+            placeholder="오늘"
+            className="border rounded px-2 py-[7px] text-sm bg-white w-full"
           />
         </div>
         <div className="flex items-center gap-3">

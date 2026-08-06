@@ -12,13 +12,13 @@ export default async function ClearingsPage({
 }: {
   searchParams: Promise<{
     account_id?: string
-    project_id?: string
-    from?: string
-    to?: string
+    project_ids?: string
+    as_of?: string
     open_only?: string
   }>
 }) {
   const params = await searchParams
+  const projectIds = (params.project_ids ?? '').split(',').filter(Boolean)
   const supabase = createAdminClient()
 
   const [{ data: accounts }, { data: projects }] = await Promise.all([
@@ -42,10 +42,11 @@ export default async function ClearingsPage({
   let rows: CpRow[] = []
 
   if (params.account_id) {
+    // 미결잔액은 기간(활동) 개념이 아니라 기준일 스냅샷 개념 — 시작일 없이 기준일까지 전체 누적으로 계산해야
+    // 발생·반제가 기준일 경계(예: 월말)를 걸칠 때 허위 미결/완결로 보이는 문제가 생기지 않는다.
     let jq = (supabase as any).from('journals').select('id').eq('is_cancelled', false)
-    if (params.project_id) jq = jq.eq('project_id', params.project_id)
-    if (params.from) jq = jq.gte('date', params.from)
-    if (params.to)   jq = jq.lte('date', params.to)
+    if (projectIds.length) jq = jq.in('project_id', projectIds)
+    if (params.as_of) jq = jq.lte('date', params.as_of)
     const { data: validJournals } = await jq as any
     const validIds = (validJournals ?? []).map((j: any) => j.id)
 
@@ -105,9 +106,8 @@ export default async function ClearingsPage({
   function ledgerUrl(r: CpRow) {
     const p = new URLSearchParams({ account_id: params.account_id! })
     if (r.cp_id) p.set('cp_id', r.cp_id)
-    if (params.project_id) p.set('project_id', params.project_id)
-    if (params.from) p.set('from', params.from)
-    if (params.to)   p.set('to',   params.to)
+    if (projectIds.length === 1) p.set('project_id', projectIds[0])
+    if (params.as_of) p.set('to', params.as_of)
     return `/ledger?${p.toString()}`
   }
 
@@ -118,7 +118,11 @@ export default async function ClearingsPage({
         {selectedAccount && (
           <p className="text-sm text-gray-500 mt-0.5">
             {selectedAccount.name} · 거래처별 잔액
-            {params.project_id && ` · ${(projects ?? []).find((p: any) => p.id === params.project_id)?.code ?? ''}`}
+            {projectIds.length > 0 && ` · ${projectIds
+              .map(id => (projects ?? []).find((p: any) => p.id === id)?.code)
+              .filter(Boolean)
+              .join(', ')}`}
+            {params.as_of && ` · ${params.as_of} 기준`}
           </p>
         )}
       </div>
