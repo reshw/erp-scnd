@@ -2,6 +2,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import CreateForm from './CreateForm'
 import AccessActions from './AccessActions'
 
+export const dynamic = 'force-dynamic'
+
 export default async function StaffAccessPage() {
   const supabase = createAdminClient() as any
 

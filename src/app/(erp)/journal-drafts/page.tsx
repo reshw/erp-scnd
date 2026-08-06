@@ -1,6 +1,8 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import DraftActions from './DraftActions'
 
+export const dynamic = 'force-dynamic'
+
 function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
 }
