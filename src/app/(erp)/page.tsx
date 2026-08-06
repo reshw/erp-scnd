@@ -71,12 +71,26 @@ export default async function DashboardPage() {
   const totalBankBalance = bankEntries.reduce((s, [, v]) => s + v, 0)
 
   // ── 무결성 체크: 전표별 차대 불균형 ──────────────────
-  const { data: allLinesRaw } = await (supabase as any)
-    .from('journal_lines')
-    .select('journal_id, debit, credit')
-    .limit(100000) as any
+  // PostgREST가 서버 설정(db-max-rows, 보통 1000)으로 .limit() 요청을 조용히 잘라내므로
+  // .range()로 직접 페이지네이션해야 전체 행을 다 가져온다(2026-08-06, 행 수가 1000을
+  // 넘어가면서 뒤쪽 행이 누락돼 실제로는 균형 잡힌 전표가 불균형으로 오탐되던 버그 발견).
+  async function fetchAllRows<T>(query: any): Promise<T[]> {
+    const pageSize = 1000
+    let rows: T[] = []
+    let from = 0
+    while (true) {
+      const { data } = await query.range(from, from + pageSize - 1)
+      if (!data || data.length === 0) break
+      rows = rows.concat(data as T[])
+      if (data.length < pageSize) break
+      from += pageSize
+    }
+    return rows
+  }
 
-  const allLines = (allLinesRaw ?? []) as Array<{ journal_id: string; debit: number; credit: number }>
+  const allLines = await fetchAllRows<{ journal_id: string; debit: number; credit: number }>(
+    (supabase as any).from('journal_lines').select('journal_id, debit, credit')
+  )
 
   // journal_id별 합산
   const lineSum: Record<string, { debit: number; credit: number }> = {}
@@ -106,12 +120,11 @@ export default async function DashboardPage() {
   }
 
   // ── 프로젝트별 전체 차대 불균형 ──────────────────────
-  const { data: allJournalsRaw } = await (supabase as any)
-    .from('journals')
-    .select('id, project_id')
-    .limit(10000) as any
+  const allJournalsRaw = await fetchAllRows<{ id: string; project_id: string | null }>(
+    (supabase as any).from('journals').select('id, project_id')
+  )
   const journalProjectMap: Record<string, string | null> = {}
-  for (const j of (allJournalsRaw ?? [])) journalProjectMap[j.id] = j.project_id
+  for (const j of allJournalsRaw) journalProjectMap[j.id] = j.project_id
 
   const projectLineSum: Record<string, { debit: number; credit: number }> = {}
   for (const l of allLines) {
