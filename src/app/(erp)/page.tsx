@@ -71,74 +71,40 @@ export default async function DashboardPage() {
   const totalBankBalance = bankEntries.reduce((s, [, v]) => s + v, 0)
 
   // ── 무결성 체크: 전표별 차대 불균형 ──────────────────
-  // PostgREST가 서버 설정(db-max-rows, 보통 1000)으로 .limit() 요청을 조용히 잘라내므로
-  // .range()로 직접 페이지네이션해야 전체 행을 다 가져온다(2026-08-06, 행 수가 1000을
-  // 넘어가면서 뒤쪽 행이 누락돼 실제로는 균형 잡힌 전표가 불균형으로 오탐되던 버그 발견).
-  async function fetchAllRows<T>(query: any): Promise<T[]> {
-    const pageSize = 1000
-    let rows: T[] = []
-    let from = 0
-    while (true) {
-      const { data } = await query.range(from, from + pageSize - 1)
-      if (!data || data.length === 0) break
-      rows = rows.concat(data as T[])
-      if (data.length < pageSize) break
-      from += pageSize
-    }
-    return rows
-  }
+  // journal_lines 전체를 읽어와 애플리케이션에서 합산하던 방식은 렌더할 때마다 테이블
+  // 전체를 훑어야 해서 행이 늘어날수록 무거워지고, PostgREST의 서버 max-rows 제한(기본
+  // 1000)에 걸려 실제로 오탐 버그도 냈었다(2026-08-06). SUM/GROUP BY/HAVING을 DB 뷰
+  // (unbalanced_journals/unbalanced_project_totals, 027 마이그레이션)로 옮겨서 인덱스
+  // (idx_journal_lines_journal_id, idx_journals_project_id)를 타게 하고, 애플리케이션은
+  // "불균형인 것만"(정상 상태면 0건) 받아오도록 변경 — 데이터가 아무리 늘어도 응답
+  // 크기가 커지지 않는다.
+  const { data: unbalancedRaw } = await (supabase as any)
+    .from('unbalanced_journals')
+    .select('journal_id, diff')
+  const unbalancedIds = (unbalancedRaw ?? []) as Array<{ journal_id: string; diff: number }>
 
-  const allLines = await fetchAllRows<{ journal_id: string; debit: number; credit: number }>(
-    (supabase as any).from('journal_lines').select('journal_id, debit, credit')
-  )
-
-  // journal_id별 합산
-  const lineSum: Record<string, { debit: number; credit: number }> = {}
-  for (const l of allLines) {
-    if (!lineSum[l.journal_id]) lineSum[l.journal_id] = { debit: 0, credit: 0 }
-    lineSum[l.journal_id].debit  += Number(l.debit)  ?? 0
-    lineSum[l.journal_id].credit += Number(l.credit) ?? 0
-  }
-
-  // 불균형 journal_id 목록
-  const unbalancedIds = Object.entries(lineSum)
-    .filter(([, s]) => Math.abs(s.debit - s.credit) > 0)
-    .map(([id, s]) => ({ id, diff: s.debit - s.credit, debit: s.debit, credit: s.credit }))
-
-  // 불균형 전표 헤더 조회
   let unbalancedJournals: Array<{ id: string; journal_no: number; date: string; description: string | null; diff: number }> = []
   if (unbalancedIds.length > 0) {
     const { data: ubJournals } = await (supabase as any)
       .from('journals')
       .select('id, journal_no, date, description')
-      .in('id', unbalancedIds.map(u => u.id))
+      .in('id', unbalancedIds.map(u => u.journal_id))
       .order('date') as any
-    const diffMap = Object.fromEntries(unbalancedIds.map(u => [u.id, u.diff]))
+    const diffMap = Object.fromEntries(unbalancedIds.map(u => [u.journal_id, u.diff]))
     unbalancedJournals = (ubJournals ?? []).map((j: any) => ({
       ...j, diff: diffMap[j.id] ?? 0,
     }))
   }
 
   // ── 프로젝트별 전체 차대 불균형 ──────────────────────
-  const allJournalsRaw = await fetchAllRows<{ id: string; project_id: string | null }>(
-    (supabase as any).from('journals').select('id, project_id')
-  )
-  const journalProjectMap: Record<string, string | null> = {}
-  for (const j of allJournalsRaw) journalProjectMap[j.id] = j.project_id
-
-  const projectLineSum: Record<string, { debit: number; credit: number }> = {}
-  for (const l of allLines) {
-    const pid = journalProjectMap[l.journal_id] ?? '__none__'
-    if (!projectLineSum[pid]) projectLineSum[pid] = { debit: 0, credit: 0 }
-    projectLineSum[pid].debit  += Number(l.debit)
-    projectLineSum[pid].credit += Number(l.credit)
-  }
+  const { data: unbalancedProjectsRaw } = await (supabase as any)
+    .from('unbalanced_project_totals')
+    .select('project_id, diff')
   const projectCodeMap = Object.fromEntries(projects.map(p => [p.id, p.code]))
-  const unbalancedProjects = Object.entries(projectLineSum)
-    .filter(([, s]) => Math.abs(s.debit - s.credit) > 0)
-    .map(([pid, s]) => ({
-      code: pid === '__none__' ? '(프로젝트 없음)' : (projectCodeMap[pid] ?? pid),
-      diff: s.debit - s.credit,
+  const unbalancedProjects = ((unbalancedProjectsRaw ?? []) as Array<{ project_id: string | null; diff: number }>)
+    .map(p => ({
+      code: p.project_id === null ? '(프로젝트 없음)' : (projectCodeMap[p.project_id] ?? p.project_id),
+      diff: p.diff,
     }))
     .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
 
