@@ -71,8 +71,57 @@ export default async function StaffDashboard({
       opex += Number(r.total_debit)
     }
   }
-  // 매출/비용을 같은 기준(발생주의, 부가세 제외)으로 맞춰야 차액이 실질 손익이 된다 —
-  // 부가세 포함 총액은 여기 표시하지 않는다(2026-08-06, 사장님 요청으로 되돌림).
+
+  // 부가세 포함 매출/비용 — 순매출·순비용(revenue/opex)에 대응하는 부가세예수금/부가세대급금만
+  // 골라야 하므로 subtype 문자열만으로는 못 거른다(지급/환급 라벨이 다른 목적과 겹침).
+  // 대신 "같은 전표에 매출·매입 계정 라인이 있는지"로 관련 부가세 라인만 골라낸다
+  // (2026-08-06, 카드 표시를 부가세 포함 총액 + 순액/부가세 병기로 재변경).
+  const monthStart = `${monthKey}-01`
+  const monthLastDate = monthEnd(monthKey)
+  const { data: salesTaxAccounts } = await (supabase as any)
+    .from('accounts')
+    .select('id')
+    .eq('activity_type', '영업')
+    .eq('increase_type', '매출')
+  const revenueAccountIds = (salesTaxAccounts ?? []).map((a: any) => a.id)
+
+  const { data: purchaseTaxAccounts } = await (supabase as any)
+    .from('accounts')
+    .select('id')
+    .eq('activity_type', '영업')
+    .eq('increase_type', '매입')
+  const expenseAccountIds = (purchaseTaxAccounts ?? []).map((a: any) => a.id)
+
+  // vatAccountSide: 부가세예수금은 대변증가(부채), 부가세대급금은 차변증가(자산) — 둘 다
+  // "증가액"이 양수가 되도록 부호를 계정 정상측에 맞춘다.
+  async function relatedVat(accountIds: string[], vatAccountName: string, vatAccountSide: 'debit' | 'credit'): Promise<number> {
+    if (accountIds.length === 0) return 0
+    const { data: relatedLines } = await (supabase as any)
+      .from('journal_lines')
+      .select('journal_id, journals!inner(is_cancelled, project_id)')
+      .in('account_id', accountIds)
+      .eq('journals.is_cancelled', false)
+      .eq('journals.project_id', projectId)
+      .gte('date', monthStart)
+      .lte('date', monthLastDate)
+    const journalIds = [...new Set((relatedLines ?? []).map((l: any) => l.journal_id))]
+    if (journalIds.length === 0) return 0
+    const { data: vatLines } = await (supabase as any)
+      .from('journal_lines')
+      .select('debit, credit, accounts!inner(name)')
+      .eq('accounts.name', vatAccountName)
+      .in('journal_id', journalIds)
+    let vat = 0
+    for (const l of (vatLines ?? []) as any[]) {
+      vat += vatAccountSide === 'credit' ? l.credit - l.debit : l.debit - l.credit
+    }
+    return vat
+  }
+
+  const vat = await relatedVat(revenueAccountIds, '부가세예수금', 'credit')
+  const vatInput = await relatedVat(expenseAccountIds, '부가세대급금', 'debit')
+  const revenueGross = revenue + vat
+  const opexGross = opex + vatInput
 
   // 미결잔액 (미수금/미지급금 계열) — 이 프로젝트 전표만, 기준일까지
   const { data: balanceAccounts } = await (supabase as any)
@@ -139,6 +188,19 @@ export default async function StaffDashboard({
   const founderSettlement = await accountBalance(accByName['출자금'], '양석환') - await accountBalance(accByName['인출금'], '양석환')
   const apPayable = await accountBalance(accByName['미지급금(매입)'])
   const availableBalance = bankTotal + cashTotal - vatPayable - founderSettlement - apPayable
+  // 대표 개인투입금 — founderSettlement은 "회사가 대표에게 갚아야 할 돈"(회사 관점, 양수=회사가 빚짐)
+  // 인데, 대표 본인 입장에서 더 와닿는 방향은 반대(자기 돈이 회사에 물려있으면 마이너스로 보임) —
+  // 그래서 부호를 뒤집어 카드에 별도로 노출한다(2026-08-06, 사장님 요청).
+  const founderInjection = -founderSettlement
+
+  // 예정잔고 = 가용잔액 + 추후 정산받을 미수금(신용카드/무통장입금/PG). 가용잔액이 "지금 당장
+  // 쓸 수 있는 돈"이라면 예정잔고는 "미수금이 전부 들어오면 얼마가 되는지" 전망치다(2026-08-06,
+  // 사장님 요청).
+  const receivablesTotal =
+    (await accountBalance(accByName['미수금(신용카드)'])) +
+    (await accountBalance(accByName['미수금(무통장입금)'])) +
+    (await accountBalance(accByName['미수금(PG)']))
+  const projectedBalance = availableBalance + receivablesTotal
 
   return (
     <div className="space-y-6">
@@ -167,23 +229,44 @@ export default async function StaffDashboard({
           href={`/staff/ledger?type=revenue&month=${monthKey}`}
           className="border rounded-lg p-4 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors"
         >
-          <div className="text-xs text-gray-500 mb-1">{monthKey} 순매출</div>
-          <div className="text-xl font-bold tabular-nums">{fmt(revenue)}</div>
+          <div className="text-xs text-gray-500 mb-1">{monthKey} 매출 (부가세 포함)</div>
+          <div className="text-xl font-bold tabular-nums">{fmt(revenueGross)}</div>
+          <div className="text-xs text-gray-400 mt-0.5 tabular-nums">
+            (순매출 {fmt(revenue)} / 부가세 {fmt(vat)})
+          </div>
         </Link>
         <Link
           href={`/staff/ledger?type=expense&month=${monthKey}`}
           className="border rounded-lg p-4 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors"
         >
-          <div className="text-xs text-gray-500 mb-1">{monthKey} 비용</div>
-          <div className="text-xl font-bold tabular-nums">{fmt(opex)}</div>
+          <div className="text-xs text-gray-500 mb-1">{monthKey} 비용 (부가세 포함)</div>
+          <div className="text-xl font-bold tabular-nums">{fmt(opexGross)}</div>
+          <div className="text-xs text-gray-400 mt-0.5 tabular-nums">
+            (순비용 {fmt(opex)} / 부가세 {fmt(vatInput)})
+          </div>
         </Link>
       </div>
 
+      <div className="grid grid-cols-2 gap-4">
+        <div className="border rounded-lg p-4 bg-white">
+          <div className="text-xs text-gray-500 mb-1">가용잔액 (운영 가능 자금, {asOfDate} 기준)</div>
+          <div className={`text-2xl font-bold tabular-nums ${availableBalance < 0 ? 'text-red-600' : ''}`}>{fmt(availableBalance)}</div>
+          <div className="text-xs text-gray-400 mt-1 tabular-nums">
+            보통예금+현금 {fmt(bankTotal + cashTotal)} − 부가세 {fmt(vatPayable)} − 미지급금(매입) {fmt(apPayable)}
+          </div>
+        </div>
+        <div className="border rounded-lg p-4 bg-white">
+          <div className="text-xs text-gray-500 mb-1">대표 개인투입금 (누적, {asOfDate} 기준)</div>
+          <div className={`text-2xl font-bold tabular-nums ${founderInjection < 0 ? 'text-red-600' : ''}`}>{fmt(founderInjection)}</div>
+          <div className="text-xs text-gray-400 mt-1">마이너스일수록 대표 개인자금이 회사에 물려있는 금액이 큼</div>
+        </div>
+      </div>
+
       <div className="border rounded-lg p-4 bg-white">
-        <div className="text-xs text-gray-500 mb-1">가용잔액 (운영 가능 자금, {asOfDate} 기준)</div>
-        <div className={`text-2xl font-bold tabular-nums ${availableBalance < 0 ? 'text-red-600' : ''}`}>{fmt(availableBalance)}</div>
+        <div className="text-xs text-gray-500 mb-1">예정잔고 (가용잔액 + 미수금 예정입금, {asOfDate} 기준)</div>
+        <div className={`text-2xl font-bold tabular-nums ${projectedBalance < 0 ? 'text-red-600' : ''}`}>{fmt(projectedBalance)}</div>
         <div className="text-xs text-gray-400 mt-1 tabular-nums">
-          보통예금+현금 {fmt(bankTotal + cashTotal)} − 부가세 {fmt(vatPayable)} − 대표자 정산대기금 {fmt(founderSettlement)} − 미지급금(매입) {fmt(apPayable)}
+          가용잔액 {fmt(availableBalance)} + 미수금(신용카드/무통장입금/PG) {fmt(receivablesTotal)}
         </div>
       </div>
 
