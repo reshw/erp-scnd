@@ -62,8 +62,14 @@ export default async function StaffDashboard({
   for (const r of (cashflowRows ?? []) as any[]) {
     if (r.activity_type !== '영업') continue
     if (PL_EXCLUDE_SUBTYPES.has(r.activity_subtype)) continue
-    revenue += Number(r.total_credit)
-    opex += Number(r.total_debit)
+    if (r.activity_subtype === '매출취소') {
+      // 매출 계정(판매수입 등)의 감소 라벨 — 별도 비용이 아니라 매출에서 순액 차감
+      // (src/app/(erp)/monthly/page.tsx의 손익 집계와 동일한 이유)
+      revenue -= Number(r.total_debit)
+    } else {
+      revenue += Number(r.total_credit)
+      opex += Number(r.total_debit)
+    }
   }
 
   // 미결잔액 (미수금/미지급금 계열) — 이 프로젝트 전표만, 기준일까지
