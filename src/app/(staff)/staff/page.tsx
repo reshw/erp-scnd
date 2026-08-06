@@ -129,7 +129,7 @@ export default async function StaffDashboard({
     .select('id, name, normal_side')
     .in('name', [
       '미수금(신용카드)', '미수금(무통장입금)', '미수금(PG)', '미지급금(매입)', '미지급금(원리금)',
-      '현금', '보통예금', '부가세예수금', '부가세대급금', '출자금', '인출금',
+      '현금', '보통예금', '부가세예수금', '부가세대급금', '가수금(대표이사)', '인출금',
     ])
   const accByName = Object.fromEntries((balanceAccounts ?? []).map((a: any) => [a.name, a]))
 
@@ -177,21 +177,24 @@ export default async function StaffDashboard({
 
   // 가용잔액(운영 가능 자금) = 보통예금 + 현금
   //   − 부가세 순채무(부가세예수금 − 부가세대급금, 세무서에 낼 돈이라 회사가 쓸 돈 아님)
-  //   − 대표자 정산대기금(출자금(양석환) − 인출금(양석환), 대표이사가 회사를 위해 대신 낸 돈)
+  //   − 대표자 관련 순채무(가수금(대표이사) − 인출금(양석환))
   //   − 미지급금(매입)(대관료 등 확정된 채무)
   // 전부 asOfDate 기준 누적 잔액. 2026-08-06, 사장님 요청으로 신설 — "통장 잔액만으론
   // 지금 얼마를 써도 되는지 알 수 없다"는 문제(그래서 개인자금을 투입하는 일이 생김)를
   // 대시보드에서 바로 확인하게 하려는 목적.
+  //
+  // 대표자 관련 순채무는 반드시 순액(가수금 − 인출금)으로 계산해야 한다 — 가수금만 빼면
+  // 이중으로 나쁘게 잡힌다: NADIA 정산금이 인출금으로 빠져나가 마통에 들어간 뒤(그가
+  // NADIA에 갚아야 할 돈, 인출금), 그가 다시 마통에서 인출해 NADIA 청구서를 대신 갚아준
+  // 것(NADIA가 그에게 갚아야 할 돈, 가수금)까지 겹치면 사실상 "그가 NADIA에 갚아야 할 돈"과
+  // "NADIA가 그에게 갚아야 할 돈"이 서로 다른 방향인데 가수금만 빼면 인출금 쪽 채권이
+  // 통째로 누락된다(2026-08-06, 가용잔액이 실제보다 과도하게 나빠 보이는 버그로 발견·수정).
   const bankTotal = Object.values(bankBalance).reduce((s, v) => s + v, 0)
   const cashTotal = await accountBalance(accByName['현금'])
   const vatPayable = await accountBalance(accByName['부가세예수금']) - await accountBalance(accByName['부가세대급금'])
-  const founderSettlement = await accountBalance(accByName['출자금'], '양석환') - await accountBalance(accByName['인출금'], '양석환')
+  const founderPayable = (await accountBalance(accByName['가수금(대표이사)'], '양석환')) - (await accountBalance(accByName['인출금'], '양석환'))
   const apPayable = await accountBalance(accByName['미지급금(매입)'])
-  const availableBalance = bankTotal + cashTotal - vatPayable - founderSettlement - apPayable
-  // 대표 개인투입금 — founderSettlement은 "회사가 대표에게 갚아야 할 돈"(회사 관점, 양수=회사가 빚짐)
-  // 인데, 대표 본인 입장에서 더 와닿는 방향은 반대(자기 돈이 회사에 물려있으면 마이너스로 보임) —
-  // 그래서 부호를 뒤집어 카드에 별도로 노출한다(2026-08-06, 사장님 요청).
-  const founderInjection = -founderSettlement
+  const availableBalance = bankTotal + cashTotal - vatPayable - founderPayable - apPayable
 
   // 예정잔고 = 가용잔액 + 추후 정산받을 미수금(신용카드/무통장입금/PG). 가용잔액이 "지금 당장
   // 쓸 수 있는 돈"이라면 예정잔고는 "미수금이 전부 들어오면 얼마가 되는지" 전망치다(2026-08-06,
@@ -247,18 +250,11 @@ export default async function StaffDashboard({
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="border rounded-lg p-4 bg-white">
-          <div className="text-xs text-gray-500 mb-1">가용잔액 (운영 가능 자금, {asOfDate} 기준)</div>
-          <div className={`text-2xl font-bold tabular-nums ${availableBalance < 0 ? 'text-red-600' : ''}`}>{fmt(availableBalance)}</div>
-          <div className="text-xs text-gray-400 mt-1 tabular-nums">
-            보통예금+현금 {fmt(bankTotal + cashTotal)} − 부가세 {fmt(vatPayable)} − 미지급금(매입) {fmt(apPayable)}
-          </div>
-        </div>
-        <div className="border rounded-lg p-4 bg-white">
-          <div className="text-xs text-gray-500 mb-1">대표 개인투입금 (누적, {asOfDate} 기준)</div>
-          <div className={`text-2xl font-bold tabular-nums ${founderInjection < 0 ? 'text-red-600' : ''}`}>{fmt(founderInjection)}</div>
-          <div className="text-xs text-gray-400 mt-1">마이너스일수록 대표 개인자금이 회사에 물려있는 금액이 큼</div>
+      <div className="border rounded-lg p-4 bg-white">
+        <div className="text-xs text-gray-500 mb-1">가용잔액 (운영 가능 자금, {asOfDate} 기준)</div>
+        <div className={`text-2xl font-bold tabular-nums ${availableBalance < 0 ? 'text-red-600' : ''}`}>{fmt(availableBalance)}</div>
+        <div className="text-xs text-gray-400 mt-1 tabular-nums">
+          보통예금+현금 {fmt(bankTotal + cashTotal)} − 부가세 {fmt(vatPayable)} − 대표자 관련 순채무 {fmt(founderPayable)} − 미지급금(매입) {fmt(apPayable)}
         </div>
       </div>
 
