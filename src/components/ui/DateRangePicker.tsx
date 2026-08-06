@@ -160,8 +160,8 @@ function MonthPopup({
 
 export default function DateRangePicker({ from, to, onChange, onMonthChange }: Props) {
   const initYM = (from && isFullMonth(from, to)) ? from.slice(0, 7) : currentYM()
-  const [mode, setMode] = useState<'month' | 'range'>(
-    isFullMonth(from, to) || (!from && !to) ? 'month' : 'range'
+  const [mode, setMode] = useState<'all' | 'month' | 'range'>(
+    !from && !to ? 'all' : isFullMonth(from, to) ? 'month' : 'range'
   )
   const [ym, setYm] = useState(initYM)
   const [popupOpen, setPopupOpen] = useState(false)
@@ -182,12 +182,25 @@ export default function DateRangePicker({ from, to, onChange, onMonthChange }: P
     onMonthChange?.(r.from, r.to)
   }
 
+  function switchToAll() {
+    setMode('all')
+    onChange('', '')
+    onMonthChange?.('', '')
+  }
+
   const [y, m] = ym.split('-').map(Number)
 
   return (
     <div className="flex items-center gap-2">
       {/* 모드 토글 */}
       <div className="flex border rounded overflow-hidden text-xs shrink-0">
+        <button
+          type="button"
+          onClick={() => mode !== 'all' && switchToAll()}
+          className={`px-2.5 py-1.5 transition-colors ${
+            mode === 'all' ? 'bg-gray-800 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+          }`}
+        >전체</button>
         <button
           type="button"
           onClick={() => mode !== 'month' && switchToMonth()}
@@ -204,7 +217,9 @@ export default function DateRangePicker({ from, to, onChange, onMonthChange }: P
         >기간</button>
       </div>
 
-      {mode === 'month' ? (
+      {mode === 'all' ? (
+        <span className="text-sm text-gray-400 px-1">전체 기간</span>
+      ) : mode === 'month' ? (
         <div className="flex items-center gap-0.5 relative">
           <button
             type="button"
