@@ -71,48 +71,18 @@ export default async function StaffDashboard({
       opex += Number(r.total_debit)
     }
   }
-
-  // 부가세 포함 매출 — 순매출(revenue)에 대응하는 부가세예수금만 골라야 하므로
-  // subtype 문자열(예수/지급)로는 못 거른다: 지급은 매출취소 시의 예수금 차감과
-  // 실제 세무서 납부가 같은 라벨을 씀. 대신 "같은 전표에 매출 계정 라인이 있는지"로
-  // 부가세예수금 라인을 매출 관련만 골라낸다(납부 전표는 매출 계정 라인이 없음).
-  const monthStart = `${monthKey}-01`
-  const monthLastDate = monthEnd(monthKey)
-  const { data: revenueAccounts } = await (supabase as any)
-    .from('accounts')
-    .select('id')
-    .eq('activity_type', '영업')
-    .eq('increase_type', '매출')
-  const revenueAccountIds = (revenueAccounts ?? []).map((a: any) => a.id)
-
-  let vat = 0
-  if (revenueAccountIds.length > 0) {
-    const { data: revenueLines } = await (supabase as any)
-      .from('journal_lines')
-      .select('journal_id, journals!inner(is_cancelled, project_id)')
-      .in('account_id', revenueAccountIds)
-      .eq('journals.is_cancelled', false)
-      .eq('journals.project_id', projectId)
-      .gte('date', monthStart)
-      .lte('date', monthLastDate)
-    const salesJournalIds = [...new Set((revenueLines ?? []).map((l: any) => l.journal_id))]
-
-    if (salesJournalIds.length > 0) {
-      const { data: vatLines } = await (supabase as any)
-        .from('journal_lines')
-        .select('debit, credit, accounts!inner(name)')
-        .eq('accounts.name', '부가세예수금')
-        .in('journal_id', salesJournalIds)
-      for (const l of (vatLines ?? []) as any[]) vat += l.credit - l.debit
-    }
-  }
-  const revenueGross = revenue + vat
+  // 매출/비용을 같은 기준(발생주의, 부가세 제외)으로 맞춰야 차액이 실질 손익이 된다 —
+  // 부가세 포함 총액은 여기 표시하지 않는다(2026-08-06, 사장님 요청으로 되돌림).
 
   // 미결잔액 (미수금/미지급금 계열) — 이 프로젝트 전표만, 기준일까지
   const { data: balanceAccounts } = await (supabase as any)
     .from('accounts')
     .select('id, name, normal_side')
-    .in('name', ['미수금(신용카드)', '미수금(무통장입금)', '미수금(PG)', '미지급금(매입)', '미지급금(원리금)'])
+    .in('name', [
+      '미수금(신용카드)', '미수금(무통장입금)', '미수금(PG)', '미지급금(매입)', '미지급금(원리금)',
+      '현금', '보통예금', '부가세예수금', '부가세대급금', '출자금', '인출금',
+    ])
+  const accByName = Object.fromEntries((balanceAccounts ?? []).map((a: any) => [a.name, a]))
 
   const { data: validJournals } = await (supabase as any)
     .from('journals')
@@ -122,30 +92,32 @@ export default async function StaffDashboard({
     .lte('date', asOfDate)
   const validIds = (validJournals ?? []).map((j: any) => j.id)
 
-  const balanceRows: { name: string; balance: number }[] = []
-  if (validIds.length > 0) {
-    for (const acc of (balanceAccounts ?? []) as any[]) {
-      const { data: lines } = await (supabase as any)
-        .from('journal_lines')
-        .select('debit, credit')
-        .eq('account_id', acc.id)
-        .in('journal_id', validIds)
-      let bal = 0
-      for (const l of (lines ?? []) as any[]) {
-        bal += acc.normal_side === 'credit' ? l.credit - l.debit : l.debit - l.credit
-      }
-      if (bal !== 0) balanceRows.push({ name: acc.name, balance: bal })
+  // acc 잔액(기준일까지 누적). counterpartyName을 주면 그 거래처 라인만 걸러서 합산.
+  async function accountBalance(acc: any, counterpartyName?: string): Promise<number> {
+    if (!acc || validIds.length === 0) return 0
+    let q = (supabase as any).from('journal_lines').select('debit, credit').eq('account_id', acc.id).in('journal_id', validIds)
+    if (counterpartyName) q = q.eq('counterparty_name', counterpartyName)
+    const { data: lines } = await q
+    let bal = 0
+    for (const l of (lines ?? []) as any[]) {
+      bal += acc.normal_side === 'credit' ? l.credit - l.debit : l.debit - l.credit
     }
+    return bal
+  }
+
+  const balanceRows: { name: string; balance: number }[] = []
+  for (const name of ['미수금(신용카드)', '미수금(무통장입금)', '미수금(PG)', '미지급금(매입)', '미지급금(원리금)']) {
+    const bal = await accountBalance(accByName[name])
+    if (bal !== 0) balanceRows.push({ name, balance: bal })
   }
 
   // 통장 잔고 (보통예금, 거래처별)
-  const { data: bankAcc } = await (supabase as any).from('accounts').select('id').eq('name', '보통예금').single()
   const bankBalance: Record<string, number> = {}
-  if (bankAcc && validIds.length > 0) {
+  if (accByName['보통예금'] && validIds.length > 0) {
     const { data: lines } = await (supabase as any)
       .from('journal_lines')
       .select('debit, credit, counterparty_name')
-      .eq('account_id', bankAcc.id)
+      .eq('account_id', accByName['보통예금'].id)
       .in('journal_id', validIds)
     for (const l of (lines ?? []) as any[]) {
       const cp = l.counterparty_name
@@ -153,6 +125,20 @@ export default async function StaffDashboard({
       bankBalance[cp] = (bankBalance[cp] ?? 0) + l.debit - l.credit
     }
   }
+
+  // 가용잔액(운영 가능 자금) = 보통예금 + 현금
+  //   − 부가세 순채무(부가세예수금 − 부가세대급금, 세무서에 낼 돈이라 회사가 쓸 돈 아님)
+  //   − 대표자 정산대기금(출자금(양석환) − 인출금(양석환), 대표이사가 회사를 위해 대신 낸 돈)
+  //   − 미지급금(매입)(대관료 등 확정된 채무)
+  // 전부 asOfDate 기준 누적 잔액. 2026-08-06, 사장님 요청으로 신설 — "통장 잔액만으론
+  // 지금 얼마를 써도 되는지 알 수 없다"는 문제(그래서 개인자금을 투입하는 일이 생김)를
+  // 대시보드에서 바로 확인하게 하려는 목적.
+  const bankTotal = Object.values(bankBalance).reduce((s, v) => s + v, 0)
+  const cashTotal = await accountBalance(accByName['현금'])
+  const vatPayable = await accountBalance(accByName['부가세예수금']) - await accountBalance(accByName['부가세대급금'])
+  const founderSettlement = await accountBalance(accByName['출자금'], '양석환') - await accountBalance(accByName['인출금'], '양석환')
+  const apPayable = await accountBalance(accByName['미지급금(매입)'])
+  const availableBalance = bankTotal + cashTotal - vatPayable - founderSettlement - apPayable
 
   return (
     <div className="space-y-6">
@@ -177,16 +163,27 @@ export default async function StaffDashboard({
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <div className="border rounded-lg p-4 bg-white">
-          <div className="text-xs text-gray-500 mb-1">{monthKey} 매출 (부가세 포함)</div>
-          <div className="text-xl font-bold tabular-nums">{fmt(revenueGross)}</div>
-          <div className="text-xs text-gray-400 mt-0.5 tabular-nums">
-            (순매출 {fmt(revenue)} / 부가세 {fmt(vat)})
-          </div>
-        </div>
-        <div className="border rounded-lg p-4 bg-white">
+        <Link
+          href={`/staff/ledger?type=revenue&month=${monthKey}`}
+          className="border rounded-lg p-4 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors"
+        >
+          <div className="text-xs text-gray-500 mb-1">{monthKey} 순매출</div>
+          <div className="text-xl font-bold tabular-nums">{fmt(revenue)}</div>
+        </Link>
+        <Link
+          href={`/staff/ledger?type=expense&month=${monthKey}`}
+          className="border rounded-lg p-4 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors"
+        >
           <div className="text-xs text-gray-500 mb-1">{monthKey} 비용</div>
           <div className="text-xl font-bold tabular-nums">{fmt(opex)}</div>
+        </Link>
+      </div>
+
+      <div className="border rounded-lg p-4 bg-white">
+        <div className="text-xs text-gray-500 mb-1">가용잔액 (운영 가능 자금, {asOfDate} 기준)</div>
+        <div className={`text-2xl font-bold tabular-nums ${availableBalance < 0 ? 'text-red-600' : ''}`}>{fmt(availableBalance)}</div>
+        <div className="text-xs text-gray-400 mt-1 tabular-nums">
+          보통예금+현금 {fmt(bankTotal + cashTotal)} − 부가세 {fmt(vatPayable)} − 대표자 정산대기금 {fmt(founderSettlement)} − 미지급금(매입) {fmt(apPayable)}
         </div>
       </div>
 
