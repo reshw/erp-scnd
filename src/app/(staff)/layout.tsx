@@ -6,6 +6,7 @@ const LINKS = [
   { href: '/staff', label: '잔액/손익' },
   { href: '/staff/journals', label: '전표 조회' },
   { href: '/staff/drafts', label: '내 상신함' },
+  { href: '/staff/account', label: '내 정보' },
 ]
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
