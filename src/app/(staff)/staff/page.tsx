@@ -26,7 +26,7 @@ export default async function StaffDashboard() {
     .from('monthly_cashflow')
     .select('month, activity_type, activity_subtype, total_debit, total_credit')
     .eq('project_id', projectId)
-    .gte('month', `${monthKey}-01`)
+    .eq('month', `${monthKey}-01`)
 
   let revenue = 0
   let opex = 0
