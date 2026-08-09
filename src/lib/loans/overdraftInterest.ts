@@ -166,7 +166,8 @@ export async function postOverdraftInterestJournal(
   const db = supabase as any
   const { loanId, from, to, date, interest, month } = params
 
-  const { data: loan } = await db.from('loans').select('project_id, counterparty_id').eq('id', loanId).single()
+  const { data: loan } = await db.from('loans').select('project_id, counterparty_id, counterparties(name)').eq('id', loanId).single()
+  const counterpartyName: string | null = loan?.counterparties?.name ?? null
 
   const { data: accountRows } = await db
     .from('accounts')
@@ -193,14 +194,14 @@ export async function postOverdraftInterestJournal(
       classification: interestAcc.increase_label,
       activity_type: interestAcc.increase_label.split(' - ')[0],
       activity_subtype: interestAcc.increase_label.split(' - ')[1] ?? '',
-      debit: interest, credit: 0, counterparty_id: loan?.counterparty_id ?? null, note,
+      debit: interest, credit: 0, counterparty_id: loan?.counterparty_id ?? null, counterparty_name: counterpartyName, note,
     },
     {
       journal_id: journal.id, date, account_id: loanAcc.id,
       classification: loanAcc.increase_label,
       activity_type: loanAcc.increase_label.split(' - ')[0],
       activity_subtype: loanAcc.increase_label.split(' - ')[1] ?? '',
-      debit: 0, credit: interest, counterparty_id: loan?.counterparty_id ?? null, note,
+      debit: 0, credit: interest, counterparty_id: loan?.counterparty_id ?? null, counterparty_name: counterpartyName, note,
     },
   ])
   if (le) return { error: le.message }

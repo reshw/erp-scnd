@@ -4,6 +4,27 @@
 
 ---
 
+## 마통 이자 전표 발행 함수 — counterparty_name 누락 코드 자체를 수정
+
+**결정일:** 2026-08-10
+**계기:** 2026-08-10 경남은행 마통 이자 338,491원 출금분을 `calcGroupOverdraftInterest`/
+`postOverdraftInterestJournal`로 일반(104,786)/JH407(22,438)/JH1307(211,267) 분할
+발행(#438~440)했는데, 세 전표 다 `counterparty_name`이 비어있었다. 2026-07-27에
+같은 증상(#352~360/#398)을 발견해 고친 적이 있는데, 그때는 **데이터만 소급 보완하고
+`postOverdraftInterestJournal` 함수 자체는 안 고쳐서** 다음 달 발행분에서 그대로 재발한
+것 — `counterparty_id`만 세팅하고 `counterparty_name`은 아예 안 채우는 코드였다.
+
+`src/lib/loans/overdraftInterest.ts`의 `postOverdraftInterestJournal`을 수정해
+`loans.counterparty_id`로 거래처명을 조회한 뒤 두 라인(이자비용/장기차입금) 모두
+`counterparty_name`을 채우도록 변경. #438~440도 소급 보완. 이 함수는
+`/api/loans/[id]/overdraft-interest`와 `/api/loans/overdraft-group-interest`(자동배치)가
+공유하므로 이 수정으로 앞으로의 월별 자동 발행분도 같이 해결됨.
+
+상세 회계 처리 내역(계산 로직·거래처·계정)은 `docs/manual-posting-conventions.md`의
+"마통(마이너스통장) 원금 인출/상환" 절 참고.
+
+---
+
 ## 대시보드 차대 불균형 체크 — PostgREST가 .limit(100000)을 조용히 1000행으로 잘라내던 버그
 
 **결정일:** 2026-08-06
