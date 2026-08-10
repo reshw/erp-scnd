@@ -2,20 +2,32 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
 }
 
+function currentMonthRange() {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth() + 1
+  const last = new Date(y, m, 0).getDate()
+  const mm = String(m).padStart(2, '0')
+  return { from: `${y}-${mm}-01`, to: `${y}-${mm}-${String(last).padStart(2, '0')}` }
+}
+
 export default function BankBalanceTable({
-  entries, total,
+  entries, total, bankAccountId,
 }: {
-  entries: { name: string; balance: number }[]
+  entries: { name: string; balance: number; cpId?: string }[]
   total: number
+  bankAccountId?: string
 }) {
   const router = useRouter()
   const [editing, setEditing] = useState(false)
   const [isPending, startTransition] = useTransition()
+  const { from, to } = currentMonthRange()
 
   function move(name: string, direction: 'up' | 'down') {
     startTransition(async () => {
@@ -49,7 +61,7 @@ export default function BankBalanceTable({
           </tr>
         </thead>
         <tbody className="divide-y">
-          {entries.map(({ name, balance }, i) => (
+          {entries.map(({ name, balance, cpId }, i) => (
             <tr key={name}>
               <td className="px-4 py-2 text-gray-700">
                 <div className="flex items-center gap-2">
@@ -69,7 +81,16 @@ export default function BankBalanceTable({
                       >▼</button>
                     </span>
                   )}
-                  <span>{name}</span>
+                  {bankAccountId && cpId ? (
+                    <Link
+                      href={`/ledger?account_id=${bankAccountId}&cp_id=${cpId}&from=${from}&to=${to}&carry=1`}
+                      className="text-blue-600 hover:underline"
+                    >
+                      {name}
+                    </Link>
+                  ) : (
+                    <span>{name}</span>
+                  )}
                 </div>
               </td>
               <td className={`px-4 py-2 text-right tabular-nums font-medium ${balance < 0 ? 'text-red-600' : ''}`}>{fmt(balance)}</td>

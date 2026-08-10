@@ -26,13 +26,13 @@ export default async function DashboardPage() {
   const { data: bankLinesRaw } = bankAccId
     ? await (supabase as any)
         .from('journal_lines')
-        .select('debit, credit, counterparty_name, journals!inner(project_id)')
+        .select('debit, credit, counterparty_id, counterparty_name, journals!inner(project_id)')
         .eq('account_id', bankAccId)
         .limit(100000) as any
     : { data: [] }
 
   const bankLines = (bankLinesRaw ?? []) as Array<{
-    debit: number; credit: number; counterparty_name: string | null
+    debit: number; credit: number; counterparty_id: string | null; counterparty_name: string | null
     journals: { project_id: string | null }
   }>
 
@@ -51,10 +51,12 @@ export default async function DashboardPage() {
   // 통장별 잔고 (실제 은행계좌가 아닌 거래처는 제외 — 예: 대출-마통경남은 마통 이자
   // 자동정산이 보통예금 계정으로 찍히면서 딸려 들어오는 것일 뿐 통장이 아님)
   const bankBalance: Record<string, number> = {}
+  const bankCpId: Record<string, string> = {}
   for (const l of bankLines) {
     const cp = l.counterparty_name
     if (!cp || cp === '대출-마통경남') continue
     bankBalance[cp] = (bankBalance[cp] ?? 0) + (l.debit ?? 0) - (l.credit ?? 0)
+    if (l.counterparty_id && !bankCpId[cp]) bankCpId[cp] = l.counterparty_id
   }
   // 표시 순서(사용자가 대시보드에서 직접 정렬) — 없는 통장은 뒤로 밀어서 잔고 내림차순으로 보충
   const { data: displayOrderRaw } = await supabase
@@ -193,8 +195,9 @@ export default async function DashboardPage() {
 
         {/* 통장별 */}
         <BankBalanceTable
-          entries={bankEntries.map(([name, balance]) => ({ name, balance }))}
+          entries={bankEntries.map(([name, balance]) => ({ name, balance, cpId: bankCpId[name] }))}
           total={totalBankBalance}
+          bankAccountId={bankAccId}
         />
       </div>
 

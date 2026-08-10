@@ -44,58 +44,60 @@ export default async function ClearingsPage({
   if (params.account_id) {
     // 미결잔액은 기간(활동) 개념이 아니라 기준일 스냅샷 개념 — 시작일 없이 기준일까지 전체 누적으로 계산해야
     // 발생·반제가 기준일 경계(예: 월말)를 걸칠 때 허위 미결/완결로 보이는 문제가 생기지 않는다.
-    let jq = (supabase as any).from('journals').select('id').eq('is_cancelled', false)
-    if (projectIds.length) jq = jq.in('project_id', projectIds)
-    if (params.as_of) jq = jq.lte('date', params.as_of)
-    const { data: validJournals } = await jq as any
-    const validIds = (validJournals ?? []).map((j: any) => j.id)
+    //
+    // 예전엔 전체 journals를 먼저 긁어 id 목록을 만들고 그 수백~수천 개를 .in()에 넣어
+    // journal_lines를 재조회했는데, journal_id가 몇백 개만 넘어도 요청 URL이 PostgREST/undici의
+    // 헤더 크기 한도(16KB)를 넘겨 "HeadersOverflowError"로 요청 자체가 실패했다(2026-08-10 확인).
+    // 이 에러를 호출부에서 그냥 삼켜서(data=null → []) "조건에 맞는 전표가 없습니다"로
+    // 잘못 표시되는 버그로 이어졌다. journals!inner 조인으로 필터를 DB에 직접 밀어넣어 해결.
+    let lq = (supabase as any)
+      .from('journal_lines')
+      .select('debit, credit, counterparty_id, counterparty_name, journals!inner(is_cancelled, date, project_id)')
+      .eq('account_id', params.account_id)
+      .eq('journals.is_cancelled', false)
+    if (projectIds.length) lq = lq.in('journals.project_id', projectIds)
+    if (params.as_of)      lq = lq.lte('journals.date', params.as_of)
 
-    if (validIds.length > 0) {
-      const { data: lines } = await (supabase as any)
-        .from('journal_lines')
-        .select('debit, credit, counterparty_id, counterparty_name')
-        .eq('account_id', params.account_id)
-        .in('journal_id', validIds) as any
+    const { data: lines } = await lq as any
 
-      const normalSide = selectedAccount?.normal_side ?? 'debit'
-      const grouped = new Map<string, CpRow>()
+    const normalSide = selectedAccount?.normal_side ?? 'debit'
+    const grouped = new Map<string, CpRow>()
 
-      for (const l of lines ?? []) {
-        const cpKey = l.counterparty_id ?? `name:${l.counterparty_name ?? ''}`
-        const cpName = l.counterparty_name ?? '(거래처 없음)'
+    for (const l of lines ?? []) {
+      const cpKey = l.counterparty_id ?? `name:${l.counterparty_name ?? ''}`
+      const cpName = l.counterparty_name ?? '(거래처 없음)'
 
-        if (!grouped.has(cpKey)) {
-          grouped.set(cpKey, {
-            cp_key: cpKey,
-            cp_name: cpName,
-            cp_id: l.counterparty_id ?? null,
-            src_count: 0,
-            src_amount: 0,
-            settle_count: 0,
-            settle_amount: 0,
-            balance: 0,
-          })
-        }
-
-        const row = grouped.get(cpKey)!
-        const debit  = Number(l.debit)
-        const credit = Number(l.credit)
-
-        if (normalSide === 'credit') {
-          // 부채/자본: credit=발생, debit=반제
-          if (credit > 0) { row.src_count++;    row.src_amount    += credit }
-          if (debit  > 0) { row.settle_count++;  row.settle_amount += debit  }
-          row.balance += credit - debit
-        } else {
-          // 자산/비용: debit=발생, credit=반제
-          if (debit  > 0) { row.src_count++;    row.src_amount    += debit  }
-          if (credit > 0) { row.settle_count++;  row.settle_amount += credit }
-          row.balance += debit - credit
-        }
+      if (!grouped.has(cpKey)) {
+        grouped.set(cpKey, {
+          cp_key: cpKey,
+          cp_name: cpName,
+          cp_id: l.counterparty_id ?? null,
+          src_count: 0,
+          src_amount: 0,
+          settle_count: 0,
+          settle_amount: 0,
+          balance: 0,
+        })
       }
 
-      rows = [...grouped.values()].sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
+      const row = grouped.get(cpKey)!
+      const debit  = Number(l.debit)
+      const credit = Number(l.credit)
+
+      if (normalSide === 'credit') {
+        // 부채/자본: credit=발생, debit=반제
+        if (credit > 0) { row.src_count++;    row.src_amount    += credit }
+        if (debit  > 0) { row.settle_count++;  row.settle_amount += debit  }
+        row.balance += credit - debit
+      } else {
+        // 자산/비용: debit=발생, credit=반제
+        if (debit  > 0) { row.src_count++;    row.src_amount    += debit  }
+        if (credit > 0) { row.settle_count++;  row.settle_amount += credit }
+        row.balance += debit - credit
+      }
     }
+
+    rows = [...grouped.values()].sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
   }
 
   const openOnly     = params.open_only === '1'

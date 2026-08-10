@@ -42,16 +42,28 @@ export async function syncLoanExecutions(supabase: any, loanId: string) {
     .eq('source_id', loanId)
     .eq('status', 'pending')
 
+  // 이미 집행(전표 발행)된 달 — loan_settlements와는 별개 트랙이라 여기서 직접 확인해야 한다.
+  // loan_settlements.journal_id는 실제 집행 로직(executeSpendingExecutions)이 채우지 않으므로
+  // "확정됐지만 journal_id 없음" 판정만으로는 이미 집행된 달도 계속 미집행으로 오판해
+  // 동기화할 때마다 중복 pending이 되살아나는 버그가 있었다(2026-08-10 발견).
+  const { data: executed } = await supabase
+    .from('spending_executions')
+    .select('planned_date')
+    .eq('source_type', 'loan')
+    .eq('source_id', loanId)
+    .eq('status', 'executed')
+  const executedMonths = new Set((executed ?? []).map((e: any) => String(e.planned_date).slice(0, 7)))
+
   // 확정 내역 전체 조회
   const { data: settled } = await supabase
     .from('loan_settlements').select('*').eq('loan_id', loanId)
   const settledMonths = new Set((settled ?? []).map((s: any) => s.month))
-  // 확정됐지만 아직 미집행(journal_id 없음)인 항목
-  const unexecuted = (settled ?? []).filter((s: any) => !s.journal_id)
+  // 확정됐지만 아직 미집행(journal_id 없음 + 실제로도 집행된 적 없음)인 항목
+  const unexecuted = (settled ?? []).filter((s: any) => !s.journal_id && !executedMonths.has(s.month))
 
-  // 미확정 스케줄 행
+  // 미확정 스케줄 행 (이미 집행된 달은 제외)
   const rows: any[] = schedule
-    .filter(r => !r.prepayment && !settledMonths.has(r.month))
+    .filter(r => !r.prepayment && !settledMonths.has(r.month) && !executedMonths.has(r.month))
     .map(r => ({
       source_type:  'loan',
       source_id:    loanId,

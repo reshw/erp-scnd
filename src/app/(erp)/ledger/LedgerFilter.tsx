@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import DateRangePicker from '@/components/ui/DateRangePicker'
@@ -77,25 +77,37 @@ export default function LedgerFilter({ accounts, projects, counterparties }: Pro
   const [cpId,       setCpId]       = useState(sp.get('cp_id') ?? '')
   const [from,       setFrom]       = useState(sp.get('from') ?? '')
   const [to,         setTo]         = useState(sp.get('to') ?? '')
+  const [carry,      setCarry]      = useState(sp.get('carry') === '1')
 
-  function buildParams(f: string, t: string) {
+  // "전체" 기간(from 없음)에선 이월잔액 개념 자체가 성립하지 않으므로 토글을 끈다.
+  useEffect(() => { if (!from) setCarry(false) }, [from])
+
+  function buildParams(f: string, t: string, c: boolean) {
     const params = new URLSearchParams()
     params.set('account_id', accountId)
     if (projectId) params.set('project_id', projectId)
     if (cpId)      params.set('cp_id', cpId)
     if (f) params.set('from', f)
     if (t) params.set('to', t)
+    if (c && f) params.set('carry', '1')
     return params
   }
 
   function apply() {
     if (!accountId) return
-    startTransition(() => router.push(`/ledger?${buildParams(from, to).toString()}`))
+    startTransition(() => router.push(`/ledger?${buildParams(from, to, carry).toString()}`))
+  }
+
+  function toggleCarry() {
+    if (!from || !accountId) return
+    const next = !carry
+    setCarry(next)
+    startTransition(() => router.push(`/ledger?${buildParams(from, to, next).toString()}`))
   }
 
   return (
     <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 items-end">
         <div>
           <div className="text-xs font-semibold text-gray-600 mb-1">계정과목 *</div>
           <SearchSelect
@@ -134,13 +146,30 @@ export default function LedgerFilter({ accounts, projects, counterparties }: Pro
               onMonthChange={(f, t) => {
                 if (!accountId) return
                 setFrom(f); setTo(t)
-                startTransition(() => router.push(`/ledger?${buildParams(f, t).toString()}`))
+                startTransition(() => router.push(`/ledger?${buildParams(f, t, carry).toString()}`))
               }}
             />
             <Button size="sm" onClick={apply} disabled={isPending || !accountId}>
               {isPending ? '…' : '조회'}
             </Button>
           </div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold text-gray-600 mb-1">&nbsp;</div>
+          <button
+            type="button"
+            onClick={toggleCarry}
+            disabled={!from || !accountId || isPending}
+            title={!from ? '전체 기간 조회에는 이월잔액을 적용할 수 없습니다 (월/기간 선택 시 사용 가능)' : '선택한 기간 이전 누계를 이월잔액 한 줄로 표시합니다'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+              carry && from ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            <span className={`inline-block w-3.5 h-3.5 rounded-sm border ${carry && from ? 'bg-blue-600 border-blue-600' : 'border-gray-400'}`}>
+              {carry && from && <span className="block text-white text-[10px] leading-[13px] text-center">✓</span>}
+            </span>
+            이월잔액 적용
+          </button>
         </div>
       </div>
     </div>
