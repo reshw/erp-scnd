@@ -52,6 +52,11 @@ export interface ProjectDashboardData {
   availableBalance: number
   receivablesTotal: number
   projectedBalance: number
+  // 월 영업이익(순매출 − 순비용, 전표 기준). 예정잔고는 사실상 누적 이익이라(대표 대납/인출이 상쇄돼 0),
+  // 지난달 확정 시점 예정잔고 대비 증감이 곧 이 값과 같아진다(2026-08 실측: 64,856 → 454,935, +390,079).
+  operatingProfit: number
+  prevProjectedBalance: number | null
+  projectedDelta: number | null
   payoutForecast: PayoutForecastSummary | null
 }
 
@@ -59,6 +64,7 @@ export async function getProjectDashboardData(
   supabase: any,
   projectId: string,
   requestedMonth?: string,
+  opts: { skipPrev?: boolean } = {},
 ): Promise<ProjectDashboardData> {
   const monthKey = resolveMonthKey(requestedMonth)
   const currentMonthKey = new Date().toISOString().slice(0, 7)
@@ -220,13 +226,22 @@ export async function getProjectDashboardData(
     (await accountBalance(accByName['미수금(PG)']))
   const projectedBalance = availableBalance + receivablesTotal
 
+  // 전월말 예정잔고 — 같은 계산을 지난달 기준일로 한 번 더(재귀는 한 단계만). 증감 = 그달 영업이익.
+  const prevProjectedBalance = opts.skipPrev
+    ? null
+    : (await getProjectDashboardData(supabase, projectId, prevMonth, { skipPrev: true })).projectedBalance
+  const projectedDelta = prevProjectedBalance === null ? null : projectedBalance - prevProjectedBalance
+  const operatingProfit = revenue - opex
+
   // 지급예정액 반영(NADIA 전용, 이번 달을 볼 때만) — 아직 장부에 없는 대관료·강사료를 timetable 추정치로
   // 미리 뺀 "예상 가용잔액". 공식 가용잔액과 섞지 않고 별도 항목으로 노출한다.
   let payoutForecast: PayoutForecastSummary | null = null
   if (isCurrentMonth) {
     const { data: proj } = await supabase.from('projects').select('code').eq('id', projectId).single()
     if (proj?.code === 'NADIA') {
-      payoutForecast = await computePayoutForecast(supabase, validIds, monthKey, prevMonth, availableBalance)
+      payoutForecast = await computePayoutForecast(supabase, validIds, monthKey, prevMonth, {
+        availableBalance, receivablesTotal, revenue, opex, prevProjectedBalance,
+      })
     }
   }
 
@@ -235,7 +250,7 @@ export async function getProjectDashboardData(
     revenue, opex, vat, vatInput, revenueGross, opexGross,
     balanceRows, bankBalance, bankTotal, cashTotal,
     vatPayable, founderPayable, apPayable, availableBalance,
-    receivablesTotal, projectedBalance, payoutForecast,
+    receivablesTotal, projectedBalance, operatingProfit, prevProjectedBalance, projectedDelta, payoutForecast,
   }
 }
 
@@ -244,6 +259,10 @@ export interface PayoutForecastSummary {
   venueVat: number         // 그중 부가세(대급금으로 잡혀 부가세 납부액이 줄어드는 몫)
   instructorTotal: number  // 아직 지급 전표가 없는 강사료 합계(세전)
   expectedAvailable: number
+  expectedProjected: number       // 예상 예정잔고 = 예상 가용잔액 + 미수금
+  expectedProfit: number          // 이번 달 예상 영업이익(발생주의: 이번 달 대관료·강사료 반영, 지난달분 강사료 지급은 제외)
+  prevAdjustedProjected: number | null // 전월말 예정잔고에서 그때 이미 발생했으나 미전표였던 지난달 강사료 등을 뺀 값
+  expectedDelta: number | null    // 예상 예정잔고 − 전월말(조정) 예정잔고 ≈ expectedProfit
 }
 
 // 대관료는 매출월 다음 달 초에 전표(venue_fee_postings), 강사료는 다음 달 10일경 지급 시점에 전표가
@@ -256,7 +275,13 @@ async function computePayoutForecast(
   validIds: string[],
   monthKey: string,
   prevMonth: string,
-  availableBalance: number,
+  ctx: {
+    availableBalance: number
+    receivablesTotal: number
+    revenue: number
+    opex: number
+    prevProjectedBalance: number | null
+  },
 ): Promise<PayoutForecastSummary | null> {
   const [cur, prev] = await Promise.all([fetchPayoutForecast(monthKey), fetchPayoutForecast(prevMonth)])
   if (!cur || !prev) return null
@@ -274,6 +299,9 @@ async function computePayoutForecast(
     venueTotal += f.venue_fee.rent_total_amount
     venueVat += f.venue_fee.rent_vat_amount
   }
+  // 이번 달 손익에 들어가는 대관료(공급가)는 이번 달 몫뿐. 지난달분 미접수는 지난달 손익이다.
+  const venueCurSupply = postedPeriods.has(monthKey) ? 0 : cur.venue_fee.rent_supply_amount
+  const venuePrevSupplyUnposted = postedPeriods.has(prevMonth) ? 0 : prev.venue_fee.rent_supply_amount
 
   // 지난달분 강사료 지급 여부 — 지난달 말일 이후에 찍힌 강사료 계정 라인을 강사 이름(거래처)별로 합산
   const { data: feeAcc } = await supabase.from('accounts').select('id').eq('name', '강사료').maybeSingle()
@@ -291,16 +319,37 @@ async function computePayoutForecast(
     }
   }
 
-  let instructorTotal = 0
-  for (const i of cur.instructor_fees) instructorTotal += i.gross_fee ?? 0
+  let instructorCurGross = 0
+  for (const i of cur.instructor_fees) instructorCurGross += i.gross_fee ?? 0
+  let instructorPrevGross = 0
+  let instructorPrevUnpaid = 0
+  let paidPrevThisMonth = 0
   for (const i of prev.instructor_fees) {
     // gross_fee가 null(계약단가 미설정, 예: 대표 본인)이면 예정액에서 제외
-    instructorTotal += Math.max(0, (i.gross_fee ?? 0) - (paidAfterPrev[i.name] ?? 0))
+    const gross = i.gross_fee ?? 0
+    const paid = paidAfterPrev[i.name] ?? 0
+    instructorPrevGross += gross
+    instructorPrevUnpaid += Math.max(0, gross - paid)
+    paidPrevThisMonth += Math.min(gross, paid)
   }
+  const instructorTotal = instructorCurGross + instructorPrevUnpaid
+
+  const expectedAvailable = ctx.availableBalance - venueTotal + venueVat - instructorTotal
+  const expectedProjected = expectedAvailable + ctx.receivablesTotal
+
+  // 이번 달 예상 영업이익(발생주의) — 장부 손익에서 "지난달분 강사료를 이번 달에 지급해 잡힌 비용"을 되돌리고
+  // 이번 달 몫 대관료(공급가)·강사료를 더 뺀다.
+  const expectedProfit = ctx.revenue - ctx.opex + paidPrevThisMonth - venueCurSupply - instructorCurGross
+
+  // 전월말 예정잔고도 같은 발생주의로 맞춘다: 그 시점에 이미 발생했지만 전표가 없던 지난달 강사료(·미접수 대관료)를 뺀다.
+  const prevAdjustedProjected = ctx.prevProjectedBalance === null
+    ? null
+    : ctx.prevProjectedBalance - instructorPrevGross - venuePrevSupplyUnposted
+  const expectedDelta = prevAdjustedProjected === null ? null : expectedProjected - prevAdjustedProjected
 
   return {
     venueTotal, venueVat, instructorTotal,
-    expectedAvailable: availableBalance - venueTotal + venueVat - instructorTotal,
+    expectedAvailable, expectedProjected, expectedProfit, prevAdjustedProjected, expectedDelta,
   }
 }
 

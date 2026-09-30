@@ -23,17 +23,22 @@ export default async function DashboardPage() {
   const bankAccId = (bankAcc as any)?.id as string | undefined
 
   // 보통예금 라인 전체 (project_id, counterparty_name 포함)
+  // 취소 전표(is_cancelled)는 반드시 제외 — 안 그러면 취소된 라인이 그대로 합산돼
+  // 통장 잔고가 실제 은행 잔액보다 부풀어 보이는 버그가 생긴다(2026-09-30 발견,
+  // JH1307 매매잔금 정정 과정에서 취소한 #252/#253/#255가 대시보드엔 그대로 남아
+  // 86,000,000이 더 잡혔었음).
   const { data: bankLinesRaw } = bankAccId
     ? await (supabase as any)
         .from('journal_lines')
-        .select('debit, credit, counterparty_id, counterparty_name, journals!inner(project_id)')
+        .select('debit, credit, counterparty_id, counterparty_name, journals!inner(project_id, is_cancelled)')
         .eq('account_id', bankAccId)
+        .eq('journals.is_cancelled', false)
         .limit(100000) as any
     : { data: [] }
 
   const bankLines = (bankLinesRaw ?? []) as Array<{
     debit: number; credit: number; counterparty_id: string | null; counterparty_name: string | null
-    journals: { project_id: string | null }
+    journals: { project_id: string | null; is_cancelled: boolean }
   }>
 
   // 프로젝트 목록

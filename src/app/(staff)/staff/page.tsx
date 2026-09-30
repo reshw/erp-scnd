@@ -7,6 +7,10 @@ function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
 }
 
+function sfmt(n: number) {
+  return `${n > 0 ? '+' : ''}${fmt(n)}`
+}
+
 export default async function StaffDashboard({
   searchParams,
 }: {
@@ -67,6 +71,19 @@ export default async function StaffDashboard({
       </div>
 
       <div className="border rounded-lg p-4 bg-white">
+        <div className="text-xs text-gray-500 mb-1">{d.monthKey} 영업이익 (순매출 − 순비용, 전표 기준{d.isCurrentMonth ? ', 진행 중' : ''})</div>
+        <div className={`text-2xl font-bold tabular-nums ${d.operatingProfit < 0 ? 'text-red-600' : ''}`}>{fmt(d.operatingProfit)}</div>
+        <div className="text-xs text-gray-400 mt-1 tabular-nums">
+          순매출 {fmt(d.revenue)} − 순비용 {fmt(d.opex)}
+        </div>
+        {d.payoutForecast && (
+          <div className={`text-xs mt-1 tabular-nums ${d.payoutForecast.expectedProfit < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+            예상 영업이익 {fmt(d.payoutForecast.expectedProfit)} <span className="text-gray-400">(이번 달 대관료·강사료 예정분 반영, 추정)</span>
+          </div>
+        )}
+      </div>
+
+      <div className="border rounded-lg p-4 bg-white">
         <div className="text-xs text-gray-500 mb-1">가용잔액 (운영 가능 자금, {d.asOfDate} 기준)</div>
         <div className={`text-2xl font-bold tabular-nums ${d.availableBalance < 0 ? 'text-red-600' : ''}`}>{fmt(d.availableBalance)}</div>
         <div className="text-xs text-gray-400 mt-1 tabular-nums">
@@ -80,6 +97,12 @@ export default async function StaffDashboard({
         <div className="text-xs text-gray-400 mt-1 tabular-nums">
           가용잔액 {fmt(d.availableBalance)} + 미수금(신용카드/무통장입금/PG) {fmt(d.receivablesTotal)}
         </div>
+        {d.projectedDelta !== null && d.prevProjectedBalance !== null && (
+          <div className={`text-xs mt-1 tabular-nums ${d.projectedDelta < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+            전월말({d.prevMonth}) 예정잔고 {fmt(d.prevProjectedBalance)} 대비 {sfmt(d.projectedDelta)}
+            {!d.isCurrentMonth && ' (= 영업이익)'}
+          </div>
+        )}
       </div>
 
       {d.payoutForecast && (
@@ -88,6 +111,15 @@ export default async function StaffDashboard({
           <div className={`text-2xl font-bold tabular-nums ${d.payoutForecast.expectedAvailable < 0 ? 'text-red-600' : ''}`}>{fmt(d.payoutForecast.expectedAvailable)}</div>
           <div className="text-xs text-gray-400 mt-1 tabular-nums">
             가용잔액 {fmt(d.availableBalance)} − 대관료 예정 {fmt(d.payoutForecast.venueTotal)} + 대관료 부가세 환입 {fmt(d.payoutForecast.venueVat)} − 강사료 예정 {fmt(d.payoutForecast.instructorTotal)}
+          </div>
+          <div className="mt-3 pt-3 border-t">
+            <div className="text-xs text-gray-500 mb-1">예상 예정잔고 (예상 가용잔액 + 미수금)</div>
+            <div className={`text-2xl font-bold tabular-nums ${d.payoutForecast.expectedProjected < 0 ? 'text-red-600' : ''}`}>{fmt(d.payoutForecast.expectedProjected)}</div>
+            {d.payoutForecast.expectedDelta !== null && d.payoutForecast.prevAdjustedProjected !== null && (
+              <div className={`text-xs mt-1 tabular-nums ${d.payoutForecast.expectedDelta < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                전월말({d.prevMonth}) 예정잔고 {fmt(d.payoutForecast.prevAdjustedProjected)}(지난달 강사료 발생분 반영) 대비 {sfmt(d.payoutForecast.expectedDelta)} = 이번 달 예상 영업이익
+              </div>
+            )}
           </div>
           <div className="text-xs text-gray-400 mt-0.5">아직 전표가 없는 이번 달(및 미발행 지난달) 분을 timetable 산정값으로 미리 뺀 값입니다.</div>
         </div>
