@@ -439,12 +439,12 @@ export default async function MonthlyPage({
                   const v = plGet(mk).revenue
                   return (
                     <td key={mk} className={`text-right px-3 py-2 tabular-nums font-medium ${mk === currentMonth ? 'bg-blue-50/50' : ''} ${v > 0 ? 'text-green-700' : 'text-gray-300'}`}>
-                      {v > 0 ? <a href={plLink(mk, '영업', '매출')} className="hover:underline">{fmt(v)}</a> : fmt(v)}
+                      {v > 0 ? <a href={plLink(mk, '영업', '매출,매출취소')} className="hover:underline">{fmt(v)}</a> : fmt(v)}
                     </td>
                   )
                 })}
                 <td className={`text-right px-3 py-2 tabular-nums font-bold bg-gray-50 ${annualRevenue > 0 ? 'text-green-700' : 'text-gray-400'}`}>
-                  {annualRevenue > 0 ? <a href={plLink(null, '영업', '매출')} className="hover:underline">{fmtPL(annualRevenue)}</a> : fmtPL(annualRevenue)}
+                  {annualRevenue > 0 ? <a href={plLink(null, '영업', '매출,매출취소')} className="hover:underline">{fmtPL(annualRevenue)}</a> : fmtPL(annualRevenue)}
                 </td>
               </tr>
 
@@ -455,12 +455,12 @@ export default async function MonthlyPage({
                   const v = plGet(mk).opex
                   return (
                     <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-50/50' : ''} ${v > 0 ? 'text-gray-700' : 'text-gray-300'}`}>
-                      {v > 0 ? <a href={plLink(mk, '영업')} className="hover:underline">({fmt(v)})</a> : '-'}
+                      {v > 0 ? <a href={plLink(mk, '영업', '매입')} className="hover:underline">({fmt(v)})</a> : '-'}
                     </td>
                   )
                 })}
                 <td className={`text-right px-3 py-2 tabular-nums bg-gray-50 ${annualOpex > 0 ? 'text-gray-700' : 'text-gray-400'}`}>
-                  {annualOpex > 0 ? <a href={plLink(null, '영업')} className="hover:underline">({fmtPL(annualOpex)})</a> : '-'}
+                  {annualOpex > 0 ? <a href={plLink(null, '영업', '매입')} className="hover:underline">({fmtPL(annualOpex)})</a> : '-'}
                 </td>
               </tr>
 
@@ -472,12 +472,12 @@ export default async function MonthlyPage({
                   const hasData = plGet(mk).revenue > 0 || plGet(mk).opex > 0
                   return (
                     <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-100/50' : ''} ${!hasData ? 'text-gray-300' : v < 0 ? 'text-red-600' : 'text-green-700'}`}>
-                      {hasData ? <a href={plLink(mk, '영업')} className="hover:underline">{fmtPL(v)}</a> : '-'}
+                      {hasData ? <a href={plLink(mk, '영업', '매출,매출취소,매입')} className="hover:underline">{fmtPL(v)}</a> : '-'}
                     </td>
                   )
                 })}
                 <td className={`text-right px-3 py-2 tabular-nums bg-gray-100 ${annualOpProfit < 0 ? 'text-red-600' : 'text-green-700'}`}>
-                  <a href={plLink(null, '영업')} className="hover:underline">{fmtPL(annualOpProfit)}</a>
+                  <a href={plLink(null, '영업', '매출,매출취소,매입')} className="hover:underline">{fmtPL(annualOpProfit)}</a>
                 </td>
               </tr>
 
@@ -513,12 +513,12 @@ export default async function MonthlyPage({
                   const hasData = plGet(mk).revenue > 0 || plGet(mk).opex > 0 || plGet(mk).interest > 0
                   return (
                     <td key={mk} className={`text-right px-3 py-2 tabular-nums ${mk === currentMonth ? 'bg-blue-200/50' : ''} ${!hasData ? 'text-gray-300' : v < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      {hasData ? <a href={plLink(mk, '영업')} className="hover:underline">{fmtPL(v)}</a> : '-'}
+                      {hasData ? <a href={plLink(mk, '영업', '매출,매출취소,매입,금융비용')} className="hover:underline">{fmtPL(v)}</a> : '-'}
                     </td>
                   )
                 })}
                 <td className={`text-right px-3 py-2 tabular-nums bg-gray-200 ${annualNetProfit < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                  <a href={plLink(null, '영업')} className="hover:underline">{fmtPL(annualNetProfit)}</a>
+                  <a href={plLink(null, '영업', '매출,매출취소,매입,금융비용')} className="hover:underline">{fmtPL(annualNetProfit)}</a>
                 </td>
               </tr>
 

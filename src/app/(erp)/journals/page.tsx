@@ -106,7 +106,12 @@ export default async function JournalsPage({
       } else {
         let lq = (supabase as any).from('journal_lines').select('journal_id')
         if (params.type)          lq = lq.eq('activity_type', params.type)
-        if (params.subtype)       lq = lq.eq('activity_subtype', params.subtype)
+        if (params.subtype) {
+          // /monthly 손익 드릴다운은 "매출+매입"(영업이익)처럼 subtype 여러 개를 한 번에
+          // 가리켜야 할 때가 있어 콤마로 여러 값을 받는다 — 단일 값이면 기존과 동일하게 동작.
+          const subtypes = params.subtype.split(',').filter(Boolean)
+          lq = subtypes.length > 1 ? lq.in('activity_subtype', subtypes) : lq.eq('activity_subtype', subtypes[0])
+        }
         if (selAccountIds.length) lq = lq.in('account_id', selAccountIds)
         if (selCpIds.length)      lq = lq.in('counterparty_id', selCpIds)
         if (fromDate) lq = lq.gte('date', fromDate)
