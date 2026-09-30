@@ -161,7 +161,7 @@ export default async function ProjectDashboardPage({
       <div className="border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-xs text-gray-500">
-            <tr><th className="text-left px-3 py-2">미결잔액 계정</th><th className="text-right px-3 py-2">잔액</th></tr>
+            <tr><th className="text-left px-3 py-2">미결잔액 계정 (오늘 기준 현재)</th><th className="text-right px-3 py-2">잔액</th></tr>
           </thead>
           <tbody className="divide-y">
             {d.balanceRows.map(r => (

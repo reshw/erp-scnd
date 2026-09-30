@@ -166,9 +166,9 @@ export async function getProjectDashboardData(
   const validIds = (validJournals ?? []).map((j: any) => j.id)
 
   // acc 잔액(기준일까지 누적). counterpartyName을 주면 그 거래처 라인만 걸러서 합산.
-  async function accountBalance(acc: any, counterpartyName?: string): Promise<number> {
-    if (!acc || validIds.length === 0) return 0
-    let q = supabase.from('journal_lines').select('debit, credit').eq('account_id', acc.id).in('journal_id', validIds)
+  async function accountBalance(acc: any, counterpartyName?: string, ids: string[] = validIds): Promise<number> {
+    if (!acc || ids.length === 0) return 0
+    let q = supabase.from('journal_lines').select('debit, credit').eq('account_id', acc.id).in('journal_id', ids)
     if (counterpartyName) q = q.eq('counterparty_name', counterpartyName)
     const { data: lines } = await q
     let bal = 0
@@ -178,9 +178,19 @@ export async function getProjectDashboardData(
     return bal
   }
 
+  // 미결잔액 표는 월 이동과 무관하게 항상 "오늘 기준 현재 미결"만 보여준다. 월말 스냅샷으로 보이면 다음 달에
+  // 이미 정산된 항목(예: 7월말 미수금 450,000)이 해결 안 된 것처럼 남아 혼란만 주기 때문이다.
+  // (가용잔액·예정잔고는 영업이익 증감과 맞물려야 해서 월말 스냅샷을 유지한다.)
+  let currentIds = validIds
+  if (!isCurrentMonth) {
+    const today = new Date().toISOString().slice(0, 10)
+    const { data: todayJournals } = await supabase
+      .from('journals').select('id').eq('is_cancelled', false).eq('project_id', projectId).lte('date', today)
+    currentIds = (todayJournals ?? []).map((j: any) => j.id)
+  }
   const balanceRows: { name: string; balance: number }[] = []
   for (const name of ['미수금(신용카드)', '미수금(무통장입금)', '미수금(PG)', '미지급금(매입)', '미지급금(원리금)']) {
-    const bal = await accountBalance(accByName[name])
+    const bal = await accountBalance(accByName[name], undefined, currentIds)
     if (bal !== 0) balanceRows.push({ name, balance: bal })
   }
 
