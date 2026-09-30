@@ -7,7 +7,8 @@ import DateRangePicker from '@/components/ui/DateRangePicker'
 
 interface Props {
   accounts: { id: string; name: string }[]
-  projects: { id: string; code: string }[]
+  projects: { id: string; code: string; entity_id: string | null }[]
+  entities: { id: string; name: string }[]
   counterparties: { id: string; name: string }[]
 }
 
@@ -67,13 +68,96 @@ function SearchSelect({
   )
 }
 
-export default function LedgerFilter({ accounts, projects, counterparties }: Props) {
+function ProjectCheckSelect({
+  projects,
+  entities,
+  entityId,
+  selected,
+  onToggle,
+}: {
+  projects: { id: string; code: string; entity_id: string | null }[]
+  entities: { id: string; name: string }[]
+  entityId: string
+  selected: Set<string>
+  onToggle: (id: string, checked: boolean) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+
+  const visible = projects.filter(p => {
+    if (entityId && p.entity_id !== entityId) return false
+    if (query.trim() && !p.code.toLowerCase().includes(query.toLowerCase())) return false
+    return true
+  })
+  const entityName = (id: string | null) => entities.find(e => e.id === id)?.name ?? '미분류'
+  const groups = new Map<string, { id: string; code: string; entity_id: string | null }[]>()
+  for (const p of visible) {
+    const key = p.entity_id ?? ''
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(p)
+  }
+
+  const label = selected.size === 0 ? '' : selected.size === 1
+    ? projects.find(p => selected.has(p.id))?.code ?? ''
+    : `프로젝트 ${selected.size}개`
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between border rounded px-3 py-1.5 text-sm bg-white text-left"
+      >
+        <span className={label ? '' : 'text-gray-400'}>{label || '전체'}</span>
+        <span className="text-gray-300 text-xs ml-1">▾</span>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-64 bg-white border rounded-lg shadow-lg" onMouseLeave={() => setOpen(false)}>
+          <div className="p-2 border-b">
+            <input
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="프로젝트 검색..."
+              className="w-full border rounded px-2 py-1 text-xs outline-none"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto p-1.5 space-y-2">
+            {[...groups.entries()].map(([entKey, list]) => (
+              <div key={entKey || 'none'}>
+                <div className="text-[11px] font-semibold text-gray-400 px-1.5 pt-1 pb-0.5">{entityName(entKey || null)}</div>
+                {list.map(p => (
+                  <label key={p.id} className="flex items-center gap-1.5 text-sm cursor-pointer hover:bg-gray-50 px-1.5 py-1 rounded">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(p.id)}
+                      onChange={e => onToggle(p.id, e.target.checked)}
+                      className="accent-blue-600"
+                    />
+                    <span>{p.code}</span>
+                  </label>
+                ))}
+              </div>
+            ))}
+            {visible.length === 0 && <div className="text-xs text-gray-400 px-1.5 py-2">결과 없음</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function LedgerFilter({ accounts, projects, entities, counterparties }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
   const [accountId,  setAccountId]  = useState(sp.get('account_id') ?? '')
-  const [projectId,  setProjectId]  = useState(sp.get('project_id') ?? '')
+  const [entityId,   setEntityId]   = useState(sp.get('entity_id') ?? '')
+  const [projectIds, setProjectIds] = useState<Set<string>>(
+    () => new Set(sp.get('project_ids')?.split(',').filter(Boolean) ?? [])
+  )
   const [cpId,       setCpId]       = useState(sp.get('cp_id') ?? '')
   const [from,       setFrom]       = useState(sp.get('from') ?? '')
   const [to,         setTo]         = useState(sp.get('to') ?? '')
@@ -82,10 +166,28 @@ export default function LedgerFilter({ accounts, projects, counterparties }: Pro
   // "전체" 기간(from 없음)에선 이월잔액 개념 자체가 성립하지 않으므로 토글을 끈다.
   useEffect(() => { if (!from) setCarry(false) }, [from])
 
+  function handleEntityChange(id: string) {
+    setEntityId(id)
+    // 사업자를 바꾸면 그 사업자 소속이 아닌 프로젝트 체크는 정리한다.
+    if (id) {
+      setProjectIds(prev => new Set([...prev].filter(pid => projects.find(p => p.id === pid)?.entity_id === id)))
+    }
+  }
+
+  function toggleProject(id: string, checked: boolean) {
+    setProjectIds(prev => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
   function buildParams(f: string, t: string, c: boolean) {
     const params = new URLSearchParams()
     params.set('account_id', accountId)
-    if (projectId) params.set('project_id', projectId)
+    if (entityId) params.set('entity_id', entityId)
+    if (projectIds.size) params.set('project_ids', [...projectIds].join(','))
     if (cpId)      params.set('cp_id', cpId)
     if (f) params.set('from', f)
     if (t) params.set('to', t)
@@ -107,7 +209,7 @@ export default function LedgerFilter({ accounts, projects, counterparties }: Pro
 
   return (
     <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 items-end">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end">
         <div>
           <div className="text-xs font-semibold text-gray-600 mb-1">계정과목 *</div>
           <SearchSelect
@@ -119,12 +221,22 @@ export default function LedgerFilter({ accounts, projects, counterparties }: Pro
           />
         </div>
         <div>
-          <div className="text-xs font-semibold text-gray-600 mb-1">프로젝트</div>
+          <div className="text-xs font-semibold text-gray-600 mb-1">사업자</div>
           <SearchSelect
-            options={projects.map(p => ({ id: p.id, label: p.code }))}
-            value={projectId}
-            onChange={setProjectId}
+            options={entities.map(e => ({ id: e.id, label: e.name }))}
+            value={entityId}
+            onChange={handleEntityChange}
             placeholder="전체"
+          />
+        </div>
+        <div>
+          <div className="text-xs font-semibold text-gray-600 mb-1">프로젝트</div>
+          <ProjectCheckSelect
+            projects={projects}
+            entities={entities}
+            entityId={entityId}
+            selected={projectIds}
+            onToggle={toggleProject}
           />
         </div>
         <div>

@@ -32,6 +32,13 @@ export default async function JournalDraftsPage() {
     linesByDraft[l.draft_id].push(l)
   }
 
+  // created_by_role은 Postgres DB 키(role) 원문이라 그대로 노출하면 안 됨 —
+  // staff_access.label(이름표)로 바꿔서 보여준다.
+  const { data: accessRows } = await supabase.from('staff_access').select('db_role, label')
+  const labelByRole: Record<string, string> = Object.fromEntries(
+    ((accessRows ?? []) as any[]).map(r => [r.db_role, r.label])
+  )
+
   return (
     <div className="space-y-4">
       <div>
@@ -59,11 +66,20 @@ export default async function JournalDraftsPage() {
                   <span className="text-gray-400 mx-2">·</span>
                   <span className="text-gray-600">{d.description ?? '(적요 없음)'}</span>
                   <span className="text-gray-400 mx-2">·</span>
-                  <span className="text-xs text-gray-400">{d.created_by_role}</span>
+                  <span className="text-xs text-gray-400">{labelByRole[d.created_by_role] ?? '알 수 없음'}</span>
                 </div>
                 <DraftActions draftId={d.id} />
               </div>
               <table className="w-full text-sm">
+                <thead className="bg-gray-50/60 text-xs text-gray-400">
+                  <tr>
+                    <th className="text-left px-4 py-1.5 font-normal">계정과목</th>
+                    <th className="text-right px-4 py-1.5 font-normal w-32">차변</th>
+                    <th className="text-right px-4 py-1.5 font-normal w-32">대변</th>
+                    <th className="text-left px-4 py-1.5 font-normal">거래처</th>
+                    <th className="text-left px-4 py-1.5 font-normal">비고</th>
+                  </tr>
+                </thead>
                 <tbody className="divide-y">
                   {lines.map((l, i) => (
                     <tr key={i}>

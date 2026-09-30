@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "erp": {
+      "command": "node",
+      "args": ["--no-warnings", "src/mcp/server.ts"],
+      "env": {
+        "ERP_MCP_MODE": "admin"
+      }
+    }
+  }
+}

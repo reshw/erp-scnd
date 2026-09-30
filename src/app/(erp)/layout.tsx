@@ -13,6 +13,7 @@ const NAV_GROUPS: { label: string; links: { href: string; label: string; highlig
     label: '조회',
     links: [
       { href: '/ledger', label: '계정원장' },
+      { href: '/project-dashboard', label: '프로젝트 대시보드' },
       { href: '/clearings', label: '미결잔액' },
       { href: '/receivables', label: '정산대사' },
       { href: '/monthly', label: '월말마감' },

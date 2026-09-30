@@ -6,6 +6,9 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // MCP 서버(src/mcp)는 Node의 타입 스트리핑으로 .ts를 직접 실행하므로 import에
+    // 확장자가 필요하다. noEmit 프로젝트에서만 허용되는 옵션이고, 기존 import엔 영향 없음.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

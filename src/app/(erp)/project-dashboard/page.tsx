@@ -1,51 +1,66 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getScope } from '@/lib/auth/scope'
 import { getProjectDashboardData } from '@/lib/reports/projectDashboard'
 import Link from 'next/link'
+import ProjectPicker from './ProjectPicker'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
 }
 
-export default async function StaffDashboard({
+export default async function ProjectDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string }>
+  searchParams: Promise<{ project_id?: string; month?: string }>
 }) {
-  const scope = await getScope()
-  if (scope.role !== 'employee') return null
-  const projectId = scope.allowedProjectId
+  const params = await searchParams
   const supabase = createAdminClient()
 
-  const { data: project } = await (supabase as any).from('projects').select('code').eq('id', projectId).single()
-  const { month: requestedMonth } = await searchParams
-  const d = await getProjectDashboardData(supabase, projectId, requestedMonth)
+  const { data: projects } = await (supabase as any)
+    .from('projects').select('id, code').eq('is_active', true).order('code')
+  const projectList = projects ?? []
+  const projectId = params.project_id && projectList.some((p: any) => p.id === params.project_id)
+    ? params.project_id
+    : projectList[0]?.id
+
+  if (!projectId) {
+    return (
+      <div className="text-sm text-gray-400 py-12 text-center border rounded-lg">
+        활성 프로젝트가 없습니다.
+      </div>
+    )
+  }
+
+  const project = projectList.find((p: any) => p.id === projectId)
+  const d = await getProjectDashboardData(supabase, projectId, params.month)
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold">{project?.code ?? ''} 잔액/손익</h2>
-        <div className="flex items-center gap-1.5 mt-1">
-          <Link
-            href={`/staff?month=${d.prevMonth}`}
-            className="px-2 py-0.5 rounded border text-sm text-gray-600 hover:bg-gray-50"
-          >◀</Link>
-          <span className="text-sm text-gray-700 font-medium tabular-nums w-16 text-center">{d.monthKey}</span>
-          {d.isCurrentMonth ? (
-            <span className="px-2 py-0.5 text-sm text-gray-300">▶</span>
-          ) : (
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-xl font-bold">{project?.code ?? ''} 잔액/손익</h2>
+          <div className="flex items-center gap-1.5 mt-1">
             <Link
-              href={`/staff?month=${d.nextMonth}`}
+              href={`/project-dashboard?project_id=${projectId}&month=${d.prevMonth}`}
               className="px-2 py-0.5 rounded border text-sm text-gray-600 hover:bg-gray-50"
-            >▶</Link>
-          )}
-          <span className="text-xs text-gray-400 ml-1">잔액은 {d.asOfDate} 기준</span>
+            >◀</Link>
+            <span className="text-sm text-gray-700 font-medium tabular-nums w-16 text-center">{d.monthKey}</span>
+            {d.isCurrentMonth ? (
+              <span className="px-2 py-0.5 text-sm text-gray-300">▶</span>
+            ) : (
+              <Link
+                href={`/project-dashboard?project_id=${projectId}&month=${d.nextMonth}`}
+                className="px-2 py-0.5 rounded border text-sm text-gray-600 hover:bg-gray-50"
+              >▶</Link>
+            )}
+            <span className="text-xs text-gray-400 ml-1">잔액은 {d.asOfDate} 기준</span>
+          </div>
         </div>
+        <ProjectPicker projects={projectList} value={projectId} />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <Link
-          href={`/staff/ledger?type=revenue&month=${d.monthKey}`}
+          href={`/project-dashboard/ledger?project_id=${projectId}&type=revenue&month=${d.monthKey}`}
           className="border rounded-lg p-4 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors"
         >
           <div className="text-xs text-gray-500 mb-1">{d.monthKey} 매출 (부가세 포함)</div>
@@ -55,7 +70,7 @@ export default async function StaffDashboard({
           </div>
         </Link>
         <Link
-          href={`/staff/ledger?type=expense&month=${d.monthKey}`}
+          href={`/project-dashboard/ledger?project_id=${projectId}&type=expense&month=${d.monthKey}`}
           className="border rounded-lg p-4 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors"
         >
           <div className="text-xs text-gray-500 mb-1">{d.monthKey} 비용 (부가세 포함)</div>
@@ -89,7 +104,6 @@ export default async function StaffDashboard({
           <div className="text-xs text-gray-400 mt-1 tabular-nums">
             가용잔액 {fmt(d.availableBalance)} − 대관료 예정 {fmt(d.payoutForecast.venueTotal)} + 대관료 부가세 환입 {fmt(d.payoutForecast.venueVat)} − 강사료 예정 {fmt(d.payoutForecast.instructorTotal)}
           </div>
-          <div className="text-xs text-gray-400 mt-0.5">아직 전표가 없는 이번 달(및 미발행 지난달) 분을 timetable 산정값으로 미리 뺀 값입니다.</div>
         </div>
       )}
 

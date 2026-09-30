@@ -6,12 +6,21 @@ function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
 }
 
+// running은 이미 normalSide 부호를 반영해서 계산되므로(정상 대변 계정은 대변-차변),
+// 양수=정상측(대변 계정이면 대변) 잔액이다. 라벨은 이 부호를 실제 차/대 방향으로 되돌려 표시한다.
+function balanceLabel(balance: number, normalSide: 'debit' | 'credit') {
+  if (balance === 0) return ''
+  const isDebitSide = normalSide === 'credit' ? balance < 0 : balance > 0
+  return isDebitSide ? ' (차)' : ' (대)'
+}
+
 export default async function LedgerPage({
   searchParams,
 }: {
   searchParams: Promise<{
     account_id?: string
-    project_id?: string
+    entity_id?: string
+    project_ids?: string
     cp_id?: string
     from?: string
     to?: string
@@ -21,13 +30,26 @@ export default async function LedgerPage({
   const params = await searchParams
   const supabase = createAdminClient()
 
-  const [{ data: accounts }, { data: projects }, { data: counterparties }] = await Promise.all([
+  const [{ data: accounts }, { data: projects }, { data: counterparties }, { data: entities }] = await Promise.all([
     (supabase as any).from('accounts').select('id,name,normal_side').eq('is_active', true).order('name') as any,
-    (supabase as any).from('projects').select('id,code').eq('is_active', true).order('code') as any,
+    (supabase as any).from('projects').select('id,code,entity_id').eq('is_active', true).order('code') as any,
     (supabase as any).from('counterparties').select('id,name').order('name') as any,
+    (supabase as any).from('entities').select('id,name').order('name') as any,
   ])
 
   const selectedAccount = (accounts ?? []).find((a: any) => a.id === params.account_id)
+
+  // 프로젝트 체크박스로 직접 고른 게 있으면 그걸 쓰고, 없이 사업자만 골랐으면
+  // 그 사업자 소속 프로젝트 전체로 넓혀서 필터한다.
+  const explicitProjectIds = (params.project_ids ?? '').split(',').filter(Boolean)
+  const projectIds = explicitProjectIds.length > 0
+    ? explicitProjectIds
+    : params.entity_id
+      ? (projects ?? []).filter((p: any) => p.entity_id === params.entity_id).map((p: any) => p.id)
+      : []
+  // 사업자를 골랐는데 그 사업자 소속 프로젝트가 하나도 없으면(신규 사업자 등)
+  // 필터를 안 거는 게 아니라 "일치하는 데이터 없음"으로 처리해야 한다.
+  const noMatchingProjects = !!params.entity_id && explicitProjectIds.length === 0 && projectIds.length === 0
 
   // ── 원장 데이터 조회 ──────────────────────────────────────────────────────
   interface LedgerLine {
@@ -47,9 +69,9 @@ export default async function LedgerPage({
   let totalDebit = 0, totalCredit = 0
   let openingBalance = 0
   const applyCarry = params.carry === '1' && !!params.from
+  const normalSide: 'debit' | 'credit' = selectedAccount?.normal_side ?? 'debit'
 
-  if (params.account_id) {
-    const normalSide = selectedAccount?.normal_side ?? 'debit'
+  if (params.account_id && !noMatchingProjects) {
 
     // 이월잔액: 선택 구간(from) 이전 전체를 화면에 그릴 필요 없이, debit/credit 두 컬럼만
     // 가볍게 뽑아 합산한다(PostgREST 쪽 sum() 집계 함수는 이 프로젝트에서 막혀 있어(PGRST123)
@@ -63,8 +85,9 @@ export default async function LedgerPage({
         .eq('journals.is_cancelled', false)
         .lt('date', params.from)
         .limit(100000)
-      if (params.cp_id)      oq = oq.eq('counterparty_id', params.cp_id)
-      if (params.project_id) oq = oq.eq('journals.project_id', params.project_id)
+      if (params.cp_id) oq = oq.eq('counterparty_id', params.cp_id)
+      if (projectIds.length === 1) oq = oq.eq('journals.project_id', projectIds[0])
+      else if (projectIds.length > 1) oq = oq.in('journals.project_id', projectIds)
 
       const { data: openingRows } = await oq as any
       let openingDebit = 0, openingCredit = 0
@@ -86,8 +109,9 @@ export default async function LedgerPage({
       .eq('account_id', params.account_id)
       .eq('journals.is_cancelled', false)
       .order('date').order('journal_id')
-    if (params.cp_id)      lq = lq.eq('counterparty_id', params.cp_id)
-    if (params.project_id) lq = lq.eq('journals.project_id', params.project_id)
+    if (params.cp_id) lq = lq.eq('counterparty_id', params.cp_id)
+    if (projectIds.length === 1) lq = lq.eq('journals.project_id', projectIds[0])
+    else if (projectIds.length > 1) lq = lq.in('journals.project_id', projectIds)
     if (params.from)       lq = lq.gte('date', params.from)
     if (params.to)         lq = lq.lte('date', params.to)
 
@@ -126,7 +150,11 @@ export default async function LedgerPage({
   const displayLines = [...lines].reverse()
 
   const selectedAccountName = selectedAccount?.name ?? ''
-  const selectedProjectCode = (projects ?? []).find((p: any) => p.id === params.project_id)?.code ?? ''
+  const selectedEntityName = (entities ?? []).find((e: any) => e.id === params.entity_id)?.name ?? ''
+  const selectedProjectLabel = explicitProjectIds.length === 0 ? ''
+    : explicitProjectIds.length === 1
+      ? ((projects ?? []).find((p: any) => p.id === explicitProjectIds[0])?.code ?? '')
+      : `프로젝트 ${explicitProjectIds.length}개`
   const selectedCpName      = (counterparties ?? []).find((c: any) => c.id === params.cp_id)?.name ?? ''
 
   return (
@@ -137,7 +165,8 @@ export default async function LedgerPage({
           {selectedAccountName && (
             <p className="text-sm text-gray-500 mt-0.5">
               {selectedAccountName}
-              {selectedProjectCode && ` · ${selectedProjectCode}`}
+              {selectedEntityName && ` · ${selectedEntityName}`}
+              {selectedProjectLabel && ` · ${selectedProjectLabel}`}
               {selectedCpName && ` · ${selectedCpName}`}
               {params.from && ` · ${params.from}`}
               {params.to && ` ~ ${params.to}`}
@@ -149,6 +178,7 @@ export default async function LedgerPage({
       <LedgerFilter
         accounts={accounts ?? []}
         projects={projects ?? []}
+        entities={entities ?? []}
         counterparties={counterparties ?? []}
       />
 
@@ -183,7 +213,7 @@ export default async function LedgerPage({
                 <td className="px-3 py-2 text-right tabular-nums">{fmt(totalCredit)}</td>
                 <td className={`px-3 py-2 text-right tabular-nums ${finalBalance < 0 ? 'text-red-600' : ''}`}>
                   {fmt(Math.abs(finalBalance))}
-                  {finalBalance < 0 ? ' (대)' : finalBalance > 0 ? ' (차)' : ''}
+                  {balanceLabel(finalBalance, normalSide)}
                 </td>
               </tr>
             </thead>
@@ -211,7 +241,7 @@ export default async function LedgerPage({
                     {l.credit > 0 ? fmt(l.credit) : ''}
                   </td>
                   <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${l.balance < 0 ? 'text-red-600' : ''}`}>
-                    {fmt(Math.abs(l.balance))}{l.balance < 0 ? ' (대)' : l.balance > 0 ? ' (차)' : ''}
+                    {fmt(Math.abs(l.balance))}{balanceLabel(l.balance, normalSide)}
                   </td>
                 </tr>
               ))}
@@ -221,7 +251,7 @@ export default async function LedgerPage({
                   <td className="px-3 py-2.5"></td>
                   <td className="px-3 py-2.5"></td>
                   <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${openingBalance < 0 ? 'text-red-600' : ''}`}>
-                    {fmt(Math.abs(openingBalance))}{openingBalance < 0 ? ' (대)' : openingBalance > 0 ? ' (차)' : ''}
+                    {fmt(Math.abs(openingBalance))}{balanceLabel(openingBalance, normalSide)}
                   </td>
                 </tr>
               )}

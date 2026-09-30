@@ -1,5 +1,4 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getScope } from '@/lib/auth/scope'
 import { getProjectLedgerData } from '@/lib/reports/projectDashboard'
 import Link from 'next/link'
 
@@ -7,29 +6,37 @@ function fmt(n: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(n))
 }
 
-export default async function StaffLedgerPage({
+export default async function ProjectDashboardLedgerPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string; month?: string }>
+  searchParams: Promise<{ project_id?: string; type?: string; month?: string }>
 }) {
-  const scope = await getScope()
-  if (scope.role !== 'employee') return null
-  const projectId = scope.allowedProjectId
+  const params = await searchParams
   const supabase = createAdminClient()
 
-  const { type: rawType, month: requestedMonth } = await searchParams
-  const type = rawType === 'expense' ? 'expense' : 'revenue'
-  const d = await getProjectLedgerData(supabase, projectId, type, requestedMonth)
+  if (!params.project_id) {
+    return (
+      <div className="text-sm text-gray-400 py-12 text-center border rounded-lg">
+        프로젝트가 지정되지 않았습니다.
+      </div>
+    )
+  }
+
+  const { data: project } = await (supabase as any)
+    .from('projects').select('code').eq('id', params.project_id).single()
+
+  const type = params.type === 'expense' ? 'expense' : 'revenue'
+  const d = await getProjectLedgerData(supabase, params.project_id, type, params.month)
   const title = type === 'revenue' ? '매출' : '비용'
 
   return (
     <div className="space-y-4">
       <div>
-        <Link href={`/staff?month=${d.monthKey}`} className="text-sm text-gray-500 hover:text-black">← 잔액/손익으로</Link>
-        <h2 className="text-xl font-bold mt-1">{d.monthKey} {title} 내역</h2>
+        <Link href={`/project-dashboard?project_id=${params.project_id}&month=${d.monthKey}`} className="text-sm text-gray-500 hover:text-black">← 잔액/손익으로</Link>
+        <h2 className="text-xl font-bold mt-1">{project?.code ?? ''} {d.monthKey} {title} 내역</h2>
         <div className="flex items-center gap-1.5 mt-1">
           <Link
-            href={`/staff/ledger?type=${type}&month=${d.prevMonth}`}
+            href={`/project-dashboard/ledger?project_id=${params.project_id}&type=${type}&month=${d.prevMonth}`}
             className="px-2 py-0.5 rounded border text-sm text-gray-600 hover:bg-gray-50"
           >◀</Link>
           <span className="text-sm text-gray-700 font-medium tabular-nums w-16 text-center">{d.monthKey}</span>
@@ -37,7 +44,7 @@ export default async function StaffLedgerPage({
             <span className="px-2 py-0.5 text-sm text-gray-300">▶</span>
           ) : (
             <Link
-              href={`/staff/ledger?type=${type}&month=${d.nextMonth}`}
+              href={`/project-dashboard/ledger?project_id=${params.project_id}&type=${type}&month=${d.nextMonth}`}
               className="px-2 py-0.5 rounded border text-sm text-gray-600 hover:bg-gray-50"
             >▶</Link>
           )}

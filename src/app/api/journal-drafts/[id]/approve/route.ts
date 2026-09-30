@@ -29,10 +29,22 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
 
   const { data: draftLines, error: le } = await supabase
     .from('journal_draft_lines')
-    .select('date, classification, activity_type, activity_subtype, account_id, debit, credit, counterparty_id, counterparty_name, note')
+    .select('date, classification, activity_type, activity_subtype, account_id, debit, credit, counterparty_id, counterparty_name, note, accounts(name)')
     .eq('draft_id', id)
   if (le) return NextResponse.json({ error: le.message }, { status: 500 })
   if (!draftLines?.length) return NextResponse.json({ error: '대기열 라인이 비어있습니다' }, { status: 400 })
+
+  // journal_lines.activity_type엔 DB CHECK 제약(6개 값만 허용)이 걸려 있어, 직원 AI가
+  // activity_subtype과 혼동해 다른 값을 채워 넣으면 원시 Postgres 에러로만 거부된다
+  // (2026-08-23 실사례: activity_type에 "입금"/"매출"/"예수" 같은 subtype 값을 넣음).
+  // 여기서 미리 걸러서 어느 계정 라인이 문제인지 바로 알려준다.
+  const VALID_ACTIVITY_TYPES = new Set(['영업', '재무', '투자', '개인', '현금', '세무'])
+  const badLine = (draftLines as any[]).find(l => !VALID_ACTIVITY_TYPES.has(l.activity_type))
+  if (badLine) {
+    return NextResponse.json({
+      error: `"${badLine.accounts?.name ?? badLine.account_id}" 라인의 activity_type 값 "${badLine.activity_type}"이 잘못됐습니다 — 영업/재무/투자/개인/현금/세무 중 하나여야 합니다(activity_subtype과 혼동한 것으로 보임). journal_draft_lines를 직접 정정한 뒤 다시 승인해 주세요.`,
+    }, { status: 400 })
+  }
 
   let journal: { id: string; journal_no: number } | null = null
   for (let attempt = 0; attempt < 5 && !journal; attempt++) {
@@ -51,7 +63,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   }
   if (!journal) return NextResponse.json({ error: '전표번호 채번에 반복 실패했습니다' }, { status: 500 })
 
-  const rows = draftLines.map((l: any) => ({ ...l, journal_id: journal!.id }))
+  const rows = draftLines.map((l: any) => {
+    const { accounts: _accounts, ...rest } = l
+    return { ...rest, journal_id: journal!.id }
+  })
   const { error: insertErr } = await supabase.from('journal_lines').insert(rows)
   if (insertErr) {
     await supabase.from('journals').delete().eq('id', journal.id)
